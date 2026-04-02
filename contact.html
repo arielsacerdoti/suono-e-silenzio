@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact — Manuel Katz / Suono e Silenzio</title>
+  <meta name="description" content="Contact Manuel Katz for meditation sessions, workshops, retreats, or corporate and healthcare training." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/main.css" />
+</head>
+<body data-page="contact.html">
+
+  <div id="nav-mount"></div>
+
+  <header class="page-hero">
+    <div class="container">
+      <h1 data-i18n="page_contact_title">Contact</h1>
+      <p data-i18n="page_contact_subtitle">Get in touch for sessions, workshops, or consultancy.</p>
+    </div>
+  </header>
+
+  <main>
+    <section class="section" aria-labelledby="contact-heading">
+      <div class="container">
+        <div class="contact-layout">
+
+          <!-- ── Info column ── -->
+          <div class="contact-info">
+            <h2 id="contact-heading" data-i18n="contact_info_heading">Reach Out</h2>
+            <p data-i18n="contact_info_p">
+              Manuel Katz is based in Israel and Italy and offers sessions online and in person.
+              For inquiries about meditation groups, retreats, corporate training, or individual work,
+              please write.
+            </p>
+
+            <div class="contact-detail">
+              <div class="detail-icon">✉️</div>
+              <div>
+                <h4 data-i18n="contact_email_label">Email</h4>
+                <a href="mailto:mkatz@suonoesilenzio.it">mkatz@suonoesilenzio.it</a>
+              </div>
+            </div>
+
+            <div class="contact-detail">
+              <div class="detail-icon">📍</div>
+              <div>
+                <h4 data-i18n="contact_location_label">Locations</h4>
+                <p data-i18n="contact_location_value">Israel · Florence, Italy</p>
+              </div>
+            </div>
+
+            <div class="contact-detail">
+              <div class="detail-icon">▶️</div>
+              <div>
+                <h4>YouTube</h4>
+                <a href="https://www.youtube.com/playlist?list=PLBnExi1jlBdj2QnlLQ144sdKYSi3bfFYK"
+                   target="_blank" rel="noopener">Meditation for Everyone →</a>
+              </div>
+            </div>
+
+            <!-- Sessions CTA -->
+            <div style="margin-top:2.5rem;padding:2rem;background:#f0f4f2;border-radius:12px;">
+              <h3 style="margin-bottom:.75rem;">🧘 Join a session</h3>
+              <p style="font-size:.9rem;color:#4b5563;margin-bottom:1.25rem;">
+                Free public meditation sessions are held regularly on Zoom. Browse the recordings or write to be notified of upcoming live sessions.
+              </p>
+              <a href="sessions.html" class="btn btn-primary" data-i18n="nav_sessions">Sessions</a>
+            </div>
+          </div>
+
+          <!-- ── Form column ── -->
+          <div class="contact-form" role="form" aria-labelledby="form-heading">
+            <h2 id="form-heading" data-i18n="contact_form_heading">Send a Message</h2>
+            <form id="contact-form" action="mailto:mkatz@suonoesilenzio.it" method="POST" enctype="text/plain" style="margin-top:1.5rem;">
+
+              <div class="form-group">
+                <label for="name" data-i18n="contact_name_label">Your Name</label>
+                <input type="text" id="name" name="name" required autocomplete="name" />
+              </div>
+
+              <div class="form-group">
+                <label for="email" data-i18n="contact_email_input_label">Email Address</label>
+                <input type="email" id="email" name="email" required autocomplete="email" />
+              </div>
+
+              <div class="form-group">
+                <label for="subject" data-i18n="contact_subject_label">Subject</label>
+                <select id="subject" name="subject">
+                  <option value="meditation"  data-i18n="contact_subject_meditation">Meditation Sessions</option>
+                  <option value="retreat"     data-i18n="contact_subject_retreat">Retreats &amp; Workshops</option>
+                  <option value="corporate"   data-i18n="contact_subject_corporate">Corporate / Healthcare Training</option>
+                  <option value="individual"  data-i18n="contact_subject_individual">Individual Sessions</option>
+                  <option value="other"       data-i18n="contact_subject_other">Other</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="message" data-i18n="contact_message_label">Message</label>
+                <textarea id="message" name="message" required></textarea>
+              </div>
+
+              <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;">
+                <span data-i18n="contact_submit">Send Message</span>
+              </button>
+
+              <p style="font-size:.78rem;color:#9ca3af;margin-top:1rem;text-align:center;">
+                This will open your email client. Alternatively, write directly to<br>
+                <a href="mailto:mkatz@suonoesilenzio.it" style="color:var(--color-primary);">mkatz@suonoesilenzio.it</a>
+              </p>
+            </form>
+          </div>
+
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="footer-mount"></div>
+  <script src="js/i18n.js"></script>
+  <script>
+    /* Translate select options on language change */
+    document.addEventListener('langchange', () => {
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        if (el.tagName === 'OPTION') {
+          /* i18n.js handles textContent, including options */
+        }
+      });
+    });
+  </script>
+</body>
+</html>
