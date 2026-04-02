@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Suono e Silenzio — Manuel Katz</title>
+  <meta name="description" content="Manuel Katz — psychologist, meditation teacher, and founder of Suono e Silenzio. Meditation sessions, teachings, and trainings in Hebrew, Italian, and English." />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/main.css" />
+</head>
+<body data-page="index.html">
+
+  <!-- Navigation (injected by i18n.js) -->
+  <div id="nav-mount"></div>
+
+  <!-- ═══════════════════════════════════════════
+       HERO
+  ════════════════════════════════════════════ -->
+  <section class="hero" aria-label="Hero">
+    <div class="hero-bg"></div>
+    <div class="hero-overlay"></div>
+    <div class="hero-content">
+      <p class="hero-subtitle" data-i18n="hero_subtitle">Meditation · Mindfulness · Psychology</p>
+      <h1 class="hero-title" data-i18n="hero_title">Sound &amp; Silence</h1>
+      <p class="hero-tagline" data-i18n="hero_tagline">
+        A space of inner stillness — where psychology, meditation, and ancient wisdom meet.
+      </p>
+      <div class="hero-actions">
+        <a href="sessions.html" class="btn btn-primary" data-i18n="hero_cta_sessions">Explore Sessions</a>
+        <a href="about.html"    class="btn btn-light"   data-i18n="hero_cta_about">Learn More</a>
+      </div>
+    </div>
+    <div class="hero-scroll" aria-hidden="true">
+      <span data-i18n="hero_scroll">Scroll</span>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       ABOUT PREVIEW
+  ════════════════════════════════════════════ -->
+  <section class="section" aria-labelledby="about-heading">
+    <div class="container">
+      <div class="about-preview">
+
+        <!-- Portrait -->
+        <div class="about-preview-img">
+          <img src="images/manuel-katz.jpg" alt="Manuel Katz" />
+        </div>
+
+        <!-- Text -->
+        <div class="about-preview-text">
+          <span class="eyebrow" data-i18n="about_eyebrow">About</span>
+          <h2 id="about-heading" data-i18n="about_heading">Manuel Katz</h2>
+          <p data-i18n="about_p1">
+            Manuel Katz is a clinical and medical psychologist, and a meditation and Buddhism teacher
+            with over 20 years of experience.
+          </p>
+          <p data-i18n="about_p2">
+            Founder of Suono e Silenzio, Manuel has guided practitioners, healthcare professionals,
+            and corporate teams across Italy and Israel.
+          </p>
+          <a href="about.html" class="btn btn-outline" data-i18n="about_cta">Full Biography →</a>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       SESSIONS PREVIEW
+  ════════════════════════════════════════════ -->
+  <section class="section sessions-preview" aria-labelledby="sessions-heading">
+    <div class="container">
+      <div class="section-header">
+        <span class="eyebrow" data-i18n="sessions_eyebrow">Meditation</span>
+        <h2 id="sessions-heading" data-i18n="sessions_heading">Sessions &amp; Teachings</h2>
+        <p data-i18n="sessions_desc">
+          Weekly guided meditations, dharma talks, and reflections — freely offered.
+        </p>
+      </div>
+
+      <!-- 3 featured session cards — populated by JS -->
+      <div class="sessions-grid" id="featured-sessions" aria-label="Featured sessions">
+        <!-- Loading state -->
+        <div class="session-card skeleton" aria-hidden="true"></div>
+        <div class="session-card skeleton" aria-hidden="true"></div>
+        <div class="session-card skeleton" aria-hidden="true"></div>
+      </div>
+
+      <div class="text-center">
+        <a href="sessions.html" class="btn btn-primary" data-i18n="sessions_cta">Browse All Sessions →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════
+       DANA PREVIEW
+  ════════════════════════════════════════════ -->
+  <section class="section dana-preview" aria-labelledby="dana-heading">
+    <div class="container text-center">
+      <span class="sanskrit" aria-hidden="true" data-i18n="dana_sanskrit">दान</span>
+      <span class="eyebrow" style="color:rgba(255,255,255,.55);display:block;margin-bottom:.75rem;" data-i18n="dana_eyebrow">Generosity</span>
+      <h2 id="dana-heading" data-i18n="dana_heading">Support This Work</h2>
+      <p data-i18n="dana_desc">
+        These teachings are offered freely in the spirit of Dana — the ancient practice of generosity.
+      </p>
+      <a href="dana.html" class="btn btn-light" data-i18n="dana_cta">Give Dana →</a>
+    </div>
+  </section>
+
+  <!-- Footer (injected by i18n.js) -->
+  <div id="footer-mount"></div>
+
+  <script src="data/sessions-data.js"></script>
+  <script src="js/i18n.js"></script>
+  <script>
+    /* ── Featured Sessions ── */
+    function loadFeaturedSessions() {
+      const lang = localStorage.getItem('ses_lang') || 'en';
+      let sessions;
+      if (window.SESSIONS_DATA && Array.isArray(window.SESSIONS_DATA)) {
+        sessions = window.SESSIONS_DATA;
+      } else { return; }
+
+      /* Pick 3: latest, middle, first */
+      const picks = [
+        sessions[sessions.length - 1],
+        sessions[Math.floor(sessions.length / 2)],
+        sessions[0]
+      ].filter(Boolean);
+
+      const tagLabels = {
+        'meditation-basics': { en:'Meditation', it:'Meditazione', he:'מדיטציה' },
+        'mind-thoughts':     { en:'Mind',       it:'Mente',       he:'מוח' },
+        'buddhist-concepts': { en:'Buddhist',   it:'Buddhismo',   he:'בודהיזם' },
+        'resilience':        { en:'Resilience', it:'Resilienza',  he:'חוסן' },
+        'body-breath':       { en:'Breath',     it:'Respiro',     he:'נשימה' },
+      };
+
+      const watchLabel = { en:'Watch →', it:'Guarda →', he:'צפה ←' };
+
+      const grid = document.getElementById('featured-sessions');
+      grid.innerHTML = picks.map(s => {
+        const title   = s.title[lang]   || s.title.en;
+        const summary = s.summary[lang] || s.summary.en;
+        const tags    = s.tags.slice(0, 2).map(t => {
+          const label = tagLabels[t] ? (tagLabels[t][lang] || tagLabels[t].en) : t;
+          return `<span class="tag">${label}</span>`;
+        }).join('');
+        const dateStr = new Date(s.date).toLocaleDateString(
+          lang === 'he' ? 'he-IL' : lang === 'it' ? 'it-IT' : 'en-GB',
+          { year:'numeric', month:'long', day:'numeric' }
+        );
+        const link = `https://www.youtube.com/playlist?list=PLBnExi1jlBdj2QnlLQ144sdKYSi3bfFYK`;
+        const thumb = `https://i.ytimg.com/vi/${s.id}/hqdefault.jpg`;
+
+        return `
+          <article class="session-card">
+            <a href="${link}" target="_blank" rel="noopener" class="session-thumb" aria-label="Watch: ${title}">
+              <img src="${thumb}" alt="${title}" loading="lazy"
+                   onerror="this.style.display='none'">
+              <span class="play-btn" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              </span>
+            </a>
+            <div class="session-body">
+              <div class="session-tags">${tags}</div>
+              <h3>${title}</h3>
+              <p>${summary}</p>
+              <div class="session-meta">
+                <time datetime="${s.date}">${dateStr}</time>
+                <a href="${link}" target="_blank" rel="noopener">${watchLabel[lang] || watchLabel.en}</a>
+              </div>
+            </div>
+          </article>`;
+      }).join('');
+    }
+
+    document.addEventListener('langchange', loadFeaturedSessions);
+    document.addEventListener('DOMContentLoaded', loadFeaturedSessions);
+  </script>
+</body>
+</html>

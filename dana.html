@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dana — Manuel Katz / Suono e Silenzio</title>
+  <meta name="description" content="Support the teaching through Dana — the Buddhist practice of generosity. Freely given, freely received." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/main.css" />
+
+  <style>
+    .dana-page { padding-top: var(--nav-height); }
+
+    /* Lotus divider */
+    .lotus-divider {
+      text-align: center;
+      font-size: 2rem;
+      color: var(--color-primary);
+      opacity: .35;
+      margin-block: 2.5rem;
+      letter-spacing: 1rem;
+    }
+
+    /* Three Jewels section */
+    .three-jewels {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-block: 3rem;
+    }
+    .jewel-card {
+      background: #f0f4f2;
+      border-radius: var(--radius-lg);
+      padding: 2rem 1.5rem;
+      text-align: center;
+      flex: 1;
+      min-width: 180px;
+      max-width: 220px;
+    }
+    .jewel-card .jewel-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+    .jewel-card .jewel-pali {
+      font-family: var(--font-heading);
+      font-style: italic;
+      font-size: 1.1rem;
+      color: var(--color-primary);
+      margin-bottom: .25rem;
+    }
+    .jewel-card p { font-size: .875rem; color: #6b7280; max-width: none; }
+  </style>
+</head>
+<body data-page="dana.html">
+
+  <div id="nav-mount"></div>
+
+  <main class="dana-page">
+
+    <!-- ═══════════════════════════════════════════
+         DANA HERO
+    ════════════════════════════════════════════ -->
+    <div class="dana-hero">
+      <div class="container">
+        <p class="pali" data-i18n="dana_pali">dāna</p>
+        <h1 data-i18n="page_dana_title">Dana — Generosity</h1>
+        <p data-i18n="dana_hero_p">
+          These teachings are freely offered. Dana — generosity — is the ancient practice that sustains the dharma.
+        </p>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════
+         PHILOSOPHY
+    ════════════════════════════════════════════ -->
+    <section class="section" aria-labelledby="dana-philosophy-heading">
+      <div class="container">
+        <div class="dana-content">
+
+          <h2 id="dana-philosophy-heading" data-i18n="dana_philosophy_heading">What is Dana?</h2>
+
+          <p data-i18n="dana_p1">
+            Dana (दान, dāna) is a Sanskrit and Pali word meaning generosity, gift, or the act of giving.
+            In Buddhist tradition, dana is the first of the ten perfections (paramitas) and the foundation
+            of spiritual practice.
+          </p>
+
+          <p data-i18n="dana_p2">
+            Unlike payment for services, dana is an offering made freely, from the heart, in gratitude
+            for teachings received. The teacher trusts the community; the community trusts the teaching.
+            This mutual trust is itself a practice.
+          </p>
+
+          <p data-i18n="dana_p3">
+            Whatever you give — large or small — is received with gratitude. If you are going through
+            difficulty, please do not feel obligated. Your presence and practice are a gift in themselves.
+          </p>
+
+          <!-- Three Jewels -->
+          <div class="lotus-divider" aria-hidden="true">❧ ❧ ❧</div>
+
+          <div class="three-jewels" role="list" aria-label="The Three Jewels">
+            <div class="jewel-card" role="listitem">
+              <div class="jewel-icon">☸️</div>
+              <p class="jewel-pali">Buddha</p>
+              <p>The awakened nature within all beings</p>
+            </div>
+            <div class="jewel-card" role="listitem">
+              <div class="jewel-icon">📖</div>
+              <p class="jewel-pali">Dharma</p>
+              <p>The teachings and the path of practice</p>
+            </div>
+            <div class="jewel-card" role="listitem">
+              <div class="jewel-icon">🤝</div>
+              <p class="jewel-pali">Sangha</p>
+              <p>The community of practitioners</p>
+            </div>
+          </div>
+
+          <!-- ═══════════════════════════════════════
+               GIVE BOX
+          ════════════════════════════════════════ -->
+          <div class="dana-give-box" id="give-box">
+            <h2 data-i18n="dana_give_heading">Give Dana</h2>
+            <p class="dana-instructions" data-i18n="dana_give_instructions">
+              Scan the QR code with the Bit app, or tap to open directly.
+            </p>
+
+            <!-- QR Code -->
+            <div class="qr-wrapper" id="qr-wrapper">
+              <div id="qrcode"></div>
+            </div>
+
+            <p class="bit-label" data-i18n="dana_bit_label">Bit — Phone number</p>
+            <p class="bit-number" id="bit-number"><!-- injected by JS --></p>
+
+            <!-- Fallback direct link -->
+            <div style="margin-top:1.75rem;">
+              <a id="bit-link" href="#" class="btn btn-primary" target="_blank" rel="noopener">
+                Open in Bit App →
+              </a>
+            </div>
+
+            <p style="font-size:.8rem;color:#9ca3af;margin-top:1.25rem;">
+              🔒 Secure payment via Bit — Israel's leading mobile payment app
+            </p>
+          </div>
+
+          <!-- Closing verse -->
+          <p class="dana-closing" data-i18n="dana_closing">
+            May your generosity bring benefit to all beings.
+          </p>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="footer-mount"></div>
+
+  <!-- QRCode.js from CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"
+          integrity="sha512-CNgIRecGo7nphbeZ04Sc13ka07paqdeTu0WR1IM4kNcpmBAUSHSQX0FslNhTDadL4XMmkKHH+vgJSuLFpPtYQ=="
+          crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script src="js/i18n.js"></script>
+
+  <script>
+    /* ── Dana / Bit Configuration ──────────────────────
+       Replace BIT_PHONE with Manuel's actual Bit phone number.
+       The QR code encodes the Bit deep link URL.
+       ─────────────────────────────────────────────────── */
+    const BIT_PHONE    = '050-000-0000';   /* ← REPLACE with actual number */
+    const BIT_DEEPLINK = `bit://send?phone=${BIT_PHONE.replace(/-/g,'')}`;
+    const BIT_WEB      = `https://bit.ly/donation-link`;  /* ← REPLACE with actual Bit profile link */
+
+    function renderQR() {
+      const container = document.getElementById('qrcode');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (typeof QRCode !== 'undefined') {
+        new QRCode(container, {
+          text:         BIT_DEEPLINK,
+          width:        200,
+          height:       200,
+          colorDark:    '#1a2e28',
+          colorLight:   '#ffffff',
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } else {
+        /* Fallback: use a free QR API */
+        const img = document.createElement('img');
+        img.src    = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(BIT_DEEPLINK)}&color=1a2e28`;
+        img.alt    = 'Bit QR Code';
+        img.width  = 200;
+        img.height = 200;
+        container.appendChild(img);
+      }
+
+      /* Phone display */
+      const numEl = document.getElementById('bit-number');
+      if (numEl) numEl.textContent = BIT_PHONE;
+
+      /* Direct link */
+      const linkEl = document.getElementById('bit-link');
+      if (linkEl) linkEl.href = BIT_WEB;
+    }
+
+    document.addEventListener('DOMContentLoaded', renderQR);
+  </script>
+</body>
+</html>

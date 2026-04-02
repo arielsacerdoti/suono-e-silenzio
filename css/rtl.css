@@ -1,0 +1,74 @@
+/* ===================================================
+   RTL Overrides – Hebrew (dir="rtl")
+   =================================================== */
+
+[dir="rtl"] {
+  font-family: 'Inter', 'Heebo', 'David Libre', system-ui, sans-serif;
+}
+
+/* Import Heebo for Hebrew text */
+@import url('https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700&display=swap');
+
+[dir="rtl"] body {
+  font-family: 'Heebo', 'Inter', system-ui, sans-serif;
+}
+
+/* Flip horizontal layout elements */
+[dir="rtl"] .about-preview  { direction: rtl; }
+[dir="rtl"] .bio-section    { direction: rtl; }
+[dir="rtl"] .contact-layout { direction: rtl; }
+[dir="rtl"] .footer-grid    { direction: rtl; }
+[dir="rtl"] .nav-inner      { direction: rtl; }
+[dir="rtl"] .controls-inner { direction: rtl; }
+
+/* Philosophy block border side swap */
+[dir="rtl"] .philosophy-block {
+  border-left: none;
+  border-right: 4px solid var(--color-primary);
+}
+
+/* Search icon side swap */
+[dir="rtl"] .search-wrap svg {
+  left: auto;
+  right: .9rem;
+}
+[dir="rtl"] .search-input {
+  padding-left: 1rem;
+  padding-right: 2.75rem;
+}
+
+/* Nav links gap direction */
+[dir="rtl"] .nav-links { flex-direction: row-reverse; }
+
+/* Contact detail icon alignment */
+[dir="rtl"] .contact-detail { flex-direction: row-reverse; text-align: right; }
+
+/* Footer columns */
+[dir="rtl"] .footer-col ul { align-items: flex-end; }
+
+/* About preview image decorative element */
+[dir="rtl"] .about-preview-img::before {
+  inset: 1.5rem 1.5rem -1.5rem -1.5rem;
+}
+
+/* Session card tags */
+[dir="rtl"] .session-tags { flex-direction: row-reverse; }
+
+/* Hero text alignment */
+[dir="rtl"] .hero-content  { direction: rtl; }
+[dir="rtl"] .page-hero     { direction: rtl; }
+[dir="rtl"] .dana-hero     { direction: rtl; }
+
+/* Buttons RTL */
+[dir="rtl"] .btn { flex-direction: row-reverse; }
+
+/* Form labels */
+[dir="rtl"] .form-group label { text-align: right; }
+[dir="rtl"] .form-group input,
+[dir="rtl"] .form-group textarea { text-align: right; direction: rtl; }
+
+/* Resource card */
+[dir="rtl"] .resource-card { text-align: right; }
+
+/* Mobile nav */
+[dir="rtl"] .nav-links.open { align-items: flex-end; }
