@@ -1,0 +1,2859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alpha Picks</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    html { font-size: 107%; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      padding-bottom: 90px;
+    }
+
+    /* ── Sticky top wrapper (header + tabs move as one unit) ── */
+    #sticky-top {
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #161b22 0%, #1c2333 100%);
+      border-bottom: 1px solid #30363d;
+      padding: 0.9rem 1rem 0.75rem;
+    }
+    .header-row {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-title { display: flex; flex-direction: column; }
+    .portfolio-label {
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.12em;
+      text-transform: uppercase; color: #58a6ff; margin-bottom: 0.15rem;
+    }
+    h1 { font-size: 1.2rem; font-weight: 700; color: #f0f6fc; }
+    .as-of { font-size: 0.68rem; color: #8b949e; margin-top: 0.1rem; }
+    .mode-badge {
+      display: inline-block; font-size: 0.58rem; font-weight: 700;
+      padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.35rem;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      vertical-align: middle;
+    }
+    .mode-badge.home { background: #0d2a16; color: #3fb950; }
+    .mode-badge.away { background: #1c1f2a; color: #58a6ff; }
+    .sync-age { font-size: 0.62rem; color: #8b949e; margin-top: 0.12rem; }
+
+    .refresh-status { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+    .refresh-top    { display: flex; align-items: center; gap: 0.4rem; flex-wrap: nowrap; white-space: nowrap; }
+    .header-meta-row { display: flex; align-items: center; justify-content: space-between;
+                       margin-top: 0.35rem; }
+    .market-row      { display: flex; align-items: center; gap: 0.4rem; font-size: 0.68rem;
+                       flex-wrap: nowrap; }
+    .market-item    { display: flex; align-items: center; gap: 0.22rem;
+                      background: #1c2128; border: 1px solid #444c56;
+                      border-radius: 6px; padding: 0.18rem 0.5rem; }
+    .market-lbl     { color: #6e7681; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.58rem; }
+    .market-sep     { display: none; }
+    .pulse {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #3fb950; animation: pulse 2s infinite; flex-shrink: 0;
+    }
+    .pulse.error { background: #ff7b72; animation: none; }
+    .pulse.loading { background: #e3b341; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+    .refresh-label { font-size: 0.72rem; color: #8b949e; white-space: nowrap; }
+    .refresh-btn {
+      background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+      border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.78rem;
+      cursor: pointer; min-height: 38px;
+    }
+    .refresh-btn:disabled { opacity: 0.45; }
+
+    /* ── Stats Grid ──────────────────────────────────────────── */
+    .stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 0.6rem; padding: 0.75rem 1rem 0.5rem;
+    }
+    .stat-card {
+      background: #1c2128;
+      border: 1px solid #444c56;
+      border-radius: 10px; padding: 0.7rem 0.9rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+    }
+    .stat-label {
+      font-size: 0.62rem; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: #8b949e; margin-bottom: 0.2rem;
+    }
+    .stat-value { font-size: 1.2rem; font-weight: 700; color: #f0f6fc; }
+    .stat-value.green { color: #3fb950; }
+    .stat-value.red   { color: #ff7b72; }
+    .stat-sub { font-size: 0.68rem; color: #8b949e; margin-top: 0.15rem; }
+
+    /* ── Info Chips ──────────────────────────────────────────── */
+    .info-bar {
+      display: flex; gap: 0.5rem; padding: 0 1rem 0.75rem;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .info-bar::-webkit-scrollbar { display: none; }
+    .info-chip {
+      display: inline-flex; flex-direction: column;
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 8px; padding: 0.4rem 0.75rem;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .info-chip-label {
+      font-size: 0.58rem; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: #8b949e;
+    }
+    .info-chip-value { font-size: 0.85rem; font-weight: 700; color: #58a6ff; }
+
+    /* ── Section header ──────────────────────────────────────── */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1rem 0.5rem;
+    }
+    .section-title {
+      font-size: 0.72rem; font-weight: 600; color: #8b949e;
+      text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .export-btn {
+      font-size: 0.72rem; color: #58a6ff; background: none;
+      border: none; cursor: pointer; padding: 0.25rem 0;
+    }
+
+    /* ── Holdings List ───────────────────────────────────────── */
+    #holdings-list { padding: 0 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+
+    /* ── Holding Card ────────────────────────────────────────── */
+    .holding-card {
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 12px; padding: 0.85rem 1rem;
+      display: flex; flex-direction: column; gap: 0.3rem;
+    }
+    .card-top {
+      display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 0.5rem;
+    }
+    .card-left { flex: 1; min-width: 0; }
+    .card-ticker-row {
+      display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;
+    }
+    .ticker-badge {
+      display: inline-block; background: #1f4068; color: #58a6ff;
+      font-weight: 700; font-size: 0.8rem; padding: 0.2rem 0.5rem;
+      border-radius: 6px; flex-shrink: 0;
+    }
+    .company-name {
+      font-size: 0.78rem; color: #8b949e;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .card-meta { font-size: 0.72rem; color: #8b949e; }
+    .pps, .qty, .amount { color: #8b949e; }
+    .date-cell { color: #8b949e; }
+
+    /* Right column: price (large) + day-chg (small, below) */
+    .card-right {
+      flex-shrink: 0; text-align: right;
+      display: flex; flex-direction: column; align-items: flex-end;
+    }
+    .cur-price {
+      font-size: 0.8rem; font-weight: 500; color: #8b949e;
+      font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 0.1rem;
+    }
+    .day-chg { font-size: 1.05rem; font-weight: 700; line-height: 1.2; }
+
+    /* Bottom strip: Value (left) | G/L (center) | IRR (right) */
+    .card-bot {
+      display: flex; justify-content: space-between; align-items: flex-end;
+      border-top: 1px solid #21262d; padding-top: 0.4rem; margin-top: 0.4rem;
+    }
+    .card-bot-left   { display: flex; flex-direction: column; }
+    .card-bot-center { display: flex; flex-direction: column; align-items: center; }
+    .card-bot-right  { display: flex; flex-direction: column; align-items: flex-end; }
+    .bot-label {
+      font-size: 0.58rem; color: #484f58; text-transform: uppercase;
+      letter-spacing: 0.08em; font-weight: 600; margin-bottom: 0.08rem;
+    }
+    .cur-value { font-size: 0.9rem; font-weight: 700; }
+    .cur-value.gain { color: #3fb950; }
+    .cur-value.loss { color: #ff7b72; }
+    .gain-loss { font-size: 0.82rem; font-weight: 600; }
+    .gain { color: #3fb950; font-weight: 600; }
+    .loss { color: #ff7b72; font-weight: 600; }
+    .badge {
+      display: inline-block; font-size: 0.68rem; font-weight: 600;
+      padding: 0.1rem 0.35rem; border-radius: 4px; margin-left: 0.2rem;
+    }
+    .badge-gain { background: #0d2a16; color: #3fb950; }
+    .badge-loss { background: #2a0d0d; color: #ff7b72; }
+
+    .weight { font-size: 0.7rem; color: #8b949e; }
+
+    /* Sold card */
+    .holding-card.sold-row { border-color: #21262d; }
+    .holding-card.sold-row .ticker-badge { background: #1c1c2a; color: #5a6270; }
+    .holding-card.sold-row .company-name { color: #5a6270; }
+    .holding-card.sold-row .cur-price { color: #5a6270; }
+    .sold-badge {
+      display: inline-block; font-size: 0.58rem; font-weight: 700;
+      padding: 0.1rem 0.3rem; border-radius: 3px;
+      background: #2a1515; color: #ff7b72;
+    }
+
+    .market-label {
+      display: inline-block; font-size: 0.6rem; font-weight: 700;
+      padding: 0.1rem 0.3rem; border-radius: 3px;
+      background: #21262d; color: #8b949e; margin-left: 0.25rem;
+    }
+
+    .num { display: none; }
+
+    /* Flash */
+    .flash-up   { animation: flashGreen 0.8s ease; }
+    .flash-down { animation: flashRed   0.8s ease; }
+    @keyframes flashGreen { 0% { background: #0d4020; } 100% { background: #161b22; } }
+    @keyframes flashRed   { 0% { background: #401010; } 100% { background: #161b22; } }
+
+
+    /* ── Modal (bottom sheet) ────────────────────────────────── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); z-index: 1000;
+      align-items: flex-end; justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 18px 18px 0 0;
+      padding: 0 1.25rem 2.5rem;
+      width: 100%; max-height: 92vh; overflow-y: auto;
+    }
+    .modal-handle-wrap { padding: 0.75rem 0 1rem; text-align: center; }
+    .modal-handle { width: 40px; height: 4px; background: #30363d; border-radius: 2px; display: inline-block; }
+    .modal h2 { font-size: 1rem; font-weight: 600; color: #f0f6fc; margin-bottom: 1rem; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .form-grid .full { grid-column: 1 / -1; }
+    .form-row label {
+      display: block; font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.09em; text-transform: uppercase; color: #8b949e; margin-bottom: 0.3rem;
+    }
+    .form-row input {
+      width: 100%; background: #0d1117; border: 1px solid #30363d;
+      border-radius: 8px; padding: 0.6rem 0.75rem;
+      color: #e6edf3; font-size: 1rem; font-family: inherit; min-height: 46px;
+    }
+    .form-row input:focus { outline: none; border-color: #58a6ff; }
+    .modal-body-text { color: #8b949e; font-size: 0.88rem; line-height: 1.5; margin-bottom: 1rem; }
+    .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem; }
+    .btn-primary {
+      background: #238636; color: #fff; border: none;
+      border-radius: 8px; padding: 0.65rem 1.25rem; font-size: 0.9rem;
+      cursor: pointer; min-height: 46px; flex: 1;
+    }
+    .btn-danger {
+      background: #da3633; color: #fff; border: none;
+      border-radius: 8px; padding: 0.65rem 1.25rem; font-size: 0.9rem;
+      cursor: pointer; min-height: 46px; flex: 1;
+    }
+    .btn-cancel {
+      background: transparent; color: #8b949e; border: 1px solid #30363d;
+      border-radius: 8px; padding: 0.65rem 1.25rem; font-size: 0.9rem;
+      cursor: pointer; min-height: 46px;
+    }
+
+    /* ── Toasts ──────────────────────────────────────────────── */
+    #div-toasts {
+      position: fixed; top: 0.6rem; right: 0.6rem; left: 0.6rem;
+      display: flex; flex-direction: column; gap: 0.5rem; z-index: 9999;
+    }
+    .div-toast {
+      background: #1c2a1c; border: 1px solid #3fb950; border-radius: 10px;
+      padding: 0.7rem 0.9rem; color: #e6edf3; font-size: 0.82rem; line-height: 1.45;
+      display: flex; align-items: flex-start; gap: 0.6rem;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5); animation: toastIn 0.2s ease;
+    }
+    .div-toast.pay     { background: #1c1f2a; border-color: #58a6ff; }
+    .div-toast.buycall { background: #2a1f0e; border-color: #d29922; }
+    .div-toast.log     { background: #0e1f2a; border-color: #58a6ff; }
+    .div-toast-icon { font-size: 1rem; flex-shrink: 0; }
+    .div-toast-body { flex: 1; }
+    .div-toast-close {
+      background: none; border: none; color: #8b949e; cursor: pointer;
+      font-size: 1.1rem; padding: 0; flex-shrink: 0;
+      min-width: 32px; min-height: 32px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+
+    /* ── Footer ─────────────────────────────────────────────── */
+    .footer {
+      text-align: center; padding: 1.5rem 1rem;
+      color: #484f58; font-size: 0.7rem;
+      border-top: 1px solid #21262d; margin-top: 1rem;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────── */
+    .tab-nav {
+      display: flex; overflow-x: auto; border-bottom: 1px solid #21262d;
+      background: #0d1117;
+      scrollbar-width: none;
+    }
+    .tab-nav::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      flex: 1; min-width: 80px; padding: .65rem .5rem;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: #8b949e; font-size: .8rem; font-weight: 500;
+      cursor: pointer; white-space: nowrap; transition: color .15s;
+    }
+    .tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ── Brokerage / Retirement position lists ──────────────── */
+    #brokerage-list, #ira-list {
+      padding: 0 1rem; display: flex; flex-direction: column;
+      gap: 0.5rem; padding-bottom: 1rem;
+    }
+    .acct-tab-total { padding: 0; }
+
+    /* ── Allocation donuts ───────────────────────────────────── */
+    .alloc-grid-mobile { display: flex; flex-direction: column; gap: .75rem; padding: .75rem; }
+    .alloc-panel-mobile {
+      background: #161b22; border: 1px solid #21262d; border-radius: 12px;
+      padding: .75rem .9rem;
+    }
+    .alloc-panel-title { color: #8b949e; font-size: .72rem; font-weight: 600; text-transform: uppercase;
+                         letter-spacing: .06em; margin-bottom: .65rem; }
+    .alloc-panel-body  { display: flex; align-items: center; gap: .9rem; }
+    .alloc-donut-wrap  { position: relative; flex-shrink: 0; width: 90px; height: 90px; }
+    .alloc-donut       { width: 90px; height: 90px; border-radius: 50%; }
+    .alloc-donut-hole  {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      width: 50px; height: 50px;
+      background: #161b22; border-radius: 50%;
+    }
+    .alloc-legend { flex: 1; display: flex; flex-direction: column; gap: .28rem; min-width: 0; }
+    .alloc-legend-item { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+    .alloc-legend-dot  { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; }
+    .alloc-legend-lbl  { flex: 1; font-size: .68rem; color: #c9d1d9; white-space: nowrap;
+                         overflow: hidden; text-overflow: ellipsis; }
+    .alloc-legend-pct  { flex-shrink: 0; font-size: .68rem; color: #8b949e; margin-left: .2rem; }
+    .alloc-tab-total   { display: none; }
+    /* ── Pull-to-refresh ────────────────────────────────────── */
+    #ptr-indicator {
+      text-align: center; padding: 0.6rem; color: #8b949e;
+      font-size: 0.75rem; height: 0; overflow: hidden;
+      transition: height 0.15s ease, opacity 0.15s ease; opacity: 0;
+    }
+    #ptr-indicator.visible { height: 2.2rem; opacity: 1; }
+
+    /* ── IRR chip on holding card ────────────────────────────── */
+    .irr-val { font-size: 0.82rem; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<div id="div-toasts"></div>
+
+<div id="sticky-top">
+<header>
+  <div class="header-row">
+    <div class="header-title">
+      <div class="portfolio-label">Seeking Alpha</div>
+      <h1 id="page-title">Alpha Picks</h1>
+      <span id="demo-badge" style="display:none;background:#f0883e;color:#000;padding:2px 8px;border-radius:8px;font-size:0.65rem;font-weight:700;letter-spacing:.04em" title="Demo mode — tap title 5× to exit">🎭 DEMO</span>
+    </div>
+    <div class="refresh-status">
+      <div class="refresh-top">
+        <div class="pulse loading" id="pulse"></div>
+        <span class="refresh-label" id="refresh-label">Loading…</span>
+        <button class="refresh-btn" id="refresh-btn" onclick="syncAndRefresh()" disabled>↻</button>
+        <span class="mode-badge" id="mode-badge" style="display:none">…</span>
+      </div>
+    </div>
+  </div>
+  <div class="header-meta-row">
+    <div class="as-of">Rev. <span id="revision-date"></span>
+      <script>
+        document.getElementById('revision-date').textContent =
+          new Date(document.lastModified).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      </script>
+    </div>
+    <div class="market-row">
+      <span class="market-item">
+        <span class="market-lbl" id="spy-chip-label">S&amp;P</span>
+        <span id="spy-pct-box" style="color:#8b949e">—</span>
+      </span>
+      <span class="market-item">
+        <span class="market-lbl">₪</span>
+        <span id="usdils-box" style="color:#8b949e">—</span>
+      </span>
+    </div>
+  </div>
+</header>
+
+<!-- Tab Navigation -->
+<div class="tab-nav">
+  <button class="tab-btn" id="tab-btn-brokerage" onclick="switchTab('brokerage')">Brokerage</button>
+  <button class="tab-btn" id="tab-btn-ira" onclick="switchTab('ira')">Retirement</button>
+  <button class="tab-btn active" id="tab-btn-alphapicks" onclick="switchTab('alphapicks')">Alpha Picks</button>
+  <button class="tab-btn" id="tab-btn-allocation" onclick="switchTab('allocation')">Allocation</button>
+</div>
+</div><!-- #sticky-top -->
+
+<div id="ptr-indicator">↓ Pull to refresh</div>
+
+<!-- Alpha Picks Tab -->
+<div id="tab-alphapicks" class="tab-panel active">
+
+<!-- Intraday G/L Strip -->
+<div id="intraday-strip" style="width:100%;height:68px;background:#0d1117;border-bottom:1px solid #21262d;position:relative;overflow:hidden">
+  <canvas id="intraday-canvas" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+  <div style="position:absolute;top:7px;left:14px;font-size:0.67rem;color:#484f58;pointer-events:none;letter-spacing:.06em;z-index:1">DAY G/L</div>
+  <div id="intraday-val" style="position:absolute;top:5px;right:14px;font-size:0.75rem;font-weight:600;color:#8b949e;pointer-events:none;z-index:1"></div>
+</div>
+
+<!-- Stats -->
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Total Invested</div>
+    <div class="stat-value" id="stat-total-invested">$99,951.13</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Current Value</div>
+    <div class="stat-value" id="stat-total-value">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Daily Change</div>
+    <div class="stat-value" id="stat-daily-change">—</div>
+    <div class="stat-sub" id="stat-daily-change-pct">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Change</div>
+    <div class="stat-value" id="stat-total-gain">—</div>
+    <div class="stat-sub" id="stat-total-gain-pct">—</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total % Change</div>
+    <div class="stat-value" id="stat-pct-change">—</div>
+    <div class="stat-sub" id="stat-spy-pct">S&amp;P 500: —</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Annual Return</div>
+    <div class="stat-value green" id="stat-annual-return">—</div>
+    <div class="stat-sub" id="stat-spy-return">S&amp;P 500: —</div>
+  </div>
+</div>
+
+<!-- Holdings -->
+<div class="section-header">
+  <div class="section-title">Holdings</div>
+</div>
+
+<div id="holdings-list">
+  <div id="sync-placeholder" style="text-align:center;padding:2.5rem 1rem;color:#8b949e;font-size:0.85rem">
+    Syncing from desktop…
+  </div>
+
+
+</div><!-- #holdings-list -->
+
+<div class="footer">Alpha Picks #65245648 &bull; Prices via Yahoo Finance / FMP</div>
+
+</div><!-- #tab-alphapicks -->
+
+<!-- Brokerage Tab -->
+<div id="tab-brokerage" class="tab-panel">
+  <div class="acct-tab-total" id="brok-total-bar">Loading…</div>
+  <div id="brokerage-list"><div style="text-align:center;padding:3rem 1rem;color:#8b949e;font-size:.85rem">Sync from desktop to load Brokerage data</div></div>
+  <div class="footer">Brokerage &bull; Data synced from desktop</div>
+</div>
+
+<!-- IRA Tab -->
+<div id="tab-ira" class="tab-panel">
+  <div class="acct-tab-total" id="ira-total-bar">Loading…</div>
+  <div id="ira-list"><div style="text-align:center;padding:3rem 1rem;color:#8b949e;font-size:.85rem">Sync from desktop to load IRA data</div></div>
+  <div class="footer">Retirement &bull; Data synced from desktop</div>
+</div>
+
+<!-- Allocation Tab -->
+<div id="tab-allocation" class="tab-panel">
+  <div class="alloc-tab-total" id="alloc-total-bar">Loading…</div>
+  <div class="alloc-grid-mobile" id="alloc-grid"><div style="text-align:center;padding:3rem 1rem;color:#8b949e;font-size:.85rem;grid-column:1/-1">Open Allocation tab on desktop to sync data</div></div>
+  <div class="footer">Allocation &bull; Data synced from desktop</div>
+</div>
+
+
+<!-- Modals -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-handle-wrap"><span class="modal-handle"></span></div>
+
+    <!-- Buy panel -->
+    <div id="buy-panel">
+      <h2>Buy New Position</h2>
+      <div class="form-grid">
+        <div class="form-row full">
+          <label>Purchase Date</label>
+          <input type="date" id="buy-date" />
+        </div>
+        <div class="form-row">
+          <label>Ticker</label>
+          <input type="text" id="buy-ticker" placeholder="e.g. AAPL" style="text-transform:uppercase"
+                 oninput="this.value=this.value.toUpperCase();document.getElementById('buy-company').value=''"
+                 onblur="lookupTicker()" />
+        </div>
+        <div class="form-row">
+          <label>Shares</label>
+          <input type="number" id="buy-shares" placeholder="0" min="0" step="any" inputmode="decimal" />
+        </div>
+        <div class="form-row full">
+          <label>Company Name</label>
+          <input type="text" id="buy-company" placeholder="Auto-filled from ticker" readonly
+                 style="opacity:0.7;cursor:default" />
+        </div>
+        <div class="form-row full">
+          <label>Purchase Price per Share ($)</label>
+          <input type="number" id="buy-price" placeholder="0.00" min="0" step="any" inputmode="decimal" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="confirmBuy()">Add Position</button>
+      </div>
+    </div>
+
+    <!-- Alert panel -->
+    <div id="alert-panel" style="display:none">
+      <h2 id="alert-title">Dividend Alerts</h2>
+      <p id="alert-subtitle" style="font-size:0.85rem;color:#8b949e;margin:0.25rem 0 1rem"></p>
+      <div class="form-grid">
+        <div class="form-row full" style="display:flex;align-items:center;justify-content:space-between">
+          <label style="margin:0">Enable alerts for this ticker</label>
+          <input type="checkbox" id="alert-enabled" style="width:auto;accent-color:#58a6ff;transform:scale(1.5)" />
+        </div>
+        <div class="form-row">
+          <label>Days before ex-div date</label>
+          <input type="number" id="alert-ex-days" min="0" max="30" value="3" inputmode="numeric" />
+        </div>
+        <div class="form-row">
+          <label>Days before payment date</label>
+          <input type="number" id="alert-pay-days" min="0" max="30" value="1" inputmode="numeric" />
+        </div>
+      </div>
+      <div id="alert-next-dates" style="font-size:0.78rem;color:#8b949e;margin:0.85rem 0 0;min-height:1.2em"></div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveAlerts()">Save</button>
+      </div>
+    </div>
+
+    <!-- Sell panel -->
+    <div id="sell-panel" style="display:none">
+      <h2 id="sell-title">Sell Position</h2>
+      <p class="modal-body-text" id="sell-text"></p>
+      <div class="form-grid">
+        <div class="form-row">
+          <label>Shares to Sell</label>
+          <input type="number" id="sell-shares" min="0.001" step="any" inputmode="decimal" oninput="updateSellProceeds()" />
+        </div>
+        <div class="form-row">
+          <label>Sell Date</label>
+          <input type="date" id="sell-date" />
+        </div>
+        <div class="form-row">
+          <label>Price per Share ($)</label>
+          <input type="number" id="sell-price" min="0" step="any" inputmode="decimal" oninput="updateSellProceeds()" />
+        </div>
+        <div class="form-row">
+          <label>Proceeds</label>
+          <input type="text" id="sell-proceeds" readonly style="opacity:0.7;cursor:default" placeholder="—" />
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-danger" id="sell-confirm-btn" onclick="confirmSell()">Sell</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const FMP_KEY     = 'RifQbMNRIh92cgRC44u30scmkMK0l0gK';
+  // GitHub Gist — same values as in AlphaPicks Portfolio.html
+  const GIST_USER  = 'arielsacerdoti';
+  const GIST_ID    = 'ac2630f3f93387e8c6931ebb27d694a7';
+  const GIST_TOKEN = 'REDACTED_TOKEN_REMOVED'; // read-only gist scope
+
+  // HOME_SERVER: your desktop's LAN IP + port. Update if your router assigns a new IP.
+  // The app probes this at startup to auto-detect home vs away.
+  const HOME_SERVER = window.location.port === '7843' ? window.location.origin : 'http://192.168.1.139:7843';
+
+  // HOME_MODE starts as a quick URL check; detectHomeMode() refines it asynchronously.
+  // This lets the app work whether opened from http://192.168.1.x:7843/mobile  OR  file:// on phone.
+  let HOME_MODE = window.location.port === '7843';
+
+  async function detectHomeMode() {
+    if (HOME_MODE) return; // already confirmed by URL
+    // M2: 400 ms timeout — local server answers in <100 ms or isn't there; 2 s was too conservative.
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 400);
+    try {
+      await fetch(`${HOME_SERVER}/schwab/status`, { signal: ac.signal, cache: 'no-store', mode: 'no-cors' });
+      HOME_MODE = true;
+    } catch {
+      HOME_MODE = false;
+    }
+  }
+
+  let rows, tickers, divCache = {};
+
+  function dbg() {} // no-op
+  const pulse         = document.getElementById('pulse');
+  const refreshLabel  = document.getElementById('refresh-label');
+  const refreshBtn    = document.getElementById('refresh-btn');
+  const statTotal       = document.getElementById('stat-total-value');
+  const statDailyChange = document.getElementById('stat-daily-change');
+  const statGain        = document.getElementById('stat-total-gain');
+  const statPctChange   = document.getElementById('stat-pct-change');
+
+  function fmt(n) {
+    if (n == null || isNaN(n)) return '0.00';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // ── Demo mode ─────────────────────────────────────────────────────────────
+  // Stored in localStorage so it works offline and without page reloads.
+  let DEMO_ACTIVE = localStorage.getItem('alphapicks_demo') === '1';
+  let DEMO_FACTOR = DEMO_ACTIVE
+    ? (parseInt(localStorage.getItem('alphapicks_demo_factor') || '100', 10) / 1000)
+    : 1;
+
+  function fmtShares(n) { return (+n).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+
+  function fmtD(n) {
+    const v = DEMO_ACTIVE ? n * DEMO_FACTOR : n;
+    return Math.round(v).toLocaleString('en-US');
+  }
+  function fmtPrice(n) {  // 1 decimal place for current price column
+    const v = DEMO_ACTIVE ? n * DEMO_FACTOR : n;
+    return v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  }
+  function fmtDate(s) {  // "2024-01-15" → "15-Jan-24"
+    const d = new Date(s + 'T12:00:00');
+    const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return String(d.getDate()).padStart(2,'0') + '-' + M[d.getMonth()] + '-' + String(d.getFullYear()).slice(2);
+  }
+
+  // Mirror of INITIAL_BUY_DATES in Portfolio.html — fallback when sync payload lacks date field.
+  // Keep in sync with Portfolio.html whenever a new position is added.
+  const MOBILE_BUY_DATES = {
+    // Alpha Picks
+    TTMI: '2025-12-03', MU:   '2025-12-03', INCY: '2025-12-03',
+    PARR: '2025-12-03', W:    '2025-12-03', TIGO: '2025-12-16',
+    B:    '2026-01-05', NEM:  '2026-01-16', DY:   '2026-02-02',
+    GM:   '2026-02-17', FN:   '2026-03-02', LITE: '2026-03-16',
+    // Brokerage ETFs / other
+    SPY:  '2023-09-12', MSFT: '2024-12-04', AIRR: '2024-08-02',
+    NEOS: '2025-09-11', LDQH: '2025-04-14', CRDO: '2026-05-01',
+    // Retirement
+    ARCC: '2024-11-08', JAAA: '2024-06-04', BSM:  '2025-03-04',
+    DIVO: '2026-02-18', QQQI: '2025-09-11', HGI:  '2022-09-30',
+  };
+
+  // Synced Alpha Picks stats from desktop — set by syncFromCloud, used by fetchPrices
+  // Mobile is a display terminal: desktop computes everything, mobile renders it
+  let _syncedAlphaPicksIrrRate    = null;  // Annual Return  (XIRR)
+  let _syncedAlphaPicksSpyIrrRate = null;  // S&P 500 Annual Return benchmark
+  let _syncedAlphaPicksSpySimRet  = null;  // S&P 500 Total % Change benchmark
+
+  // Last synced Brokerage / IRA data — kept in memory so refreshBrokIraPrices()
+  // can re-render with live FMP prices without needing a fresh cloud sync
+  let _lastBrokData = null;  // { positions, irrRate, spyIrrRate, spySimRet }
+  let _lastIraData  = null;
+
+  function toggleDemo() {
+    DEMO_ACTIVE = !DEMO_ACTIVE;
+    if (DEMO_ACTIVE) {
+      const f = 70 + Math.floor(Math.random() * 60);  // 7–13% of real
+      DEMO_FACTOR = f / 1000;
+      localStorage.setItem('alphapicks_demo_factor', String(f));
+      localStorage.setItem('alphapicks_demo', '1');
+    } else {
+      DEMO_FACTOR = 1;
+      localStorage.setItem('alphapicks_demo', '0');
+    }
+    const badge = document.getElementById('demo-badge');
+    if (badge) badge.style.display = DEMO_ACTIVE ? 'inline' : 'none';
+    // Re-render from cache with new scale
+    const list = document.getElementById('holdings-list');
+    if (list) {
+      list.innerHTML = '<div id="sync-placeholder" style="text-align:center;padding:2rem;color:#8b949e">Loading…</div>';
+    }
+    syncFromCloud().then(() => fetchPrices());
+  }
+
+  // Toggle: Shift+D on keyboard, or 5 rapid taps on header title
+  document.addEventListener('keydown', e => { if (e.shiftKey && e.key === 'D') toggleDemo(); });
+  let _tapCount = 0, _tapTimer = null;
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('page-title')?.addEventListener('click', () => {
+      _tapCount++;
+      clearTimeout(_tapTimer);
+      _tapTimer = setTimeout(() => { _tapCount = 0; }, 800);
+      if (_tapCount >= 5) { _tapCount = 0; toggleDemo(); }
+    });
+    if (DEMO_ACTIVE) {
+      const b = document.getElementById('demo-badge');
+      if (b) b.style.display = 'inline';
+    }
+  });
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Dividend alert helpers ────────────────────────────────────────────────
+  let alertRow = null, pendingDivData = null;
+
+  function divDateLine(saved) {
+    const fmt2 = ts => new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const parts = [];
+    if (saved.exDate)  parts.push(`Ex-div: ${fmt2(saved.exDate)}${saved.estimatedEx  ? ' (est.)' : ''}`);
+    if (saved.payDate) parts.push(`Pay: ${fmt2(saved.payDate)}${saved.estimatedPay ? ' (est.)' : ''}`);
+    if (saved.amount != null) parts.push(`$${Number(saved.amount).toFixed(4)}/sh`);
+    return parts.length ? parts.join(' · ') : 'No dividend dates on record.';
+  }
+
+  function syncBellStates() {
+    const allAlerts = JSON.parse(localStorage.getItem('alphapicks_div_alerts') || '{}');
+    rows.forEach(row => {
+      const bell = row.querySelector('.bell-btn');
+      if (bell) bell.classList.toggle('alert-on', !!(allAlerts[row.dataset.ticker]?.enabled));
+    });
+  }
+
+  function openAlerts(row) {
+    alertRow = row;
+    pendingDivData = null;
+    const ticker = row.dataset.ticker;
+    delete divCache[ticker];
+    document.getElementById('buy-panel').style.display   = 'none';
+    document.getElementById('sell-panel').style.display  = 'none';
+    document.getElementById('alert-panel').style.display = '';
+    document.getElementById('alert-title').textContent    = `Dividend Alerts — ${ticker}`;
+    document.getElementById('alert-subtitle').textContent = row.querySelector('.company-name').textContent;
+
+    const saved = JSON.parse(localStorage.getItem('alphapicks_div_alerts') || '{}')[ticker] || {};
+    document.getElementById('alert-enabled').checked = saved.enabled ?? false;
+    document.getElementById('alert-ex-days').value   = saved.exDivDays ?? 3;
+    document.getElementById('alert-pay-days').value  = saved.payDays   ?? 1;
+
+    const el = document.getElementById('alert-next-dates');
+    el.textContent = saved.exDate || saved.payDate ? divDateLine(saved) : 'Fetching dividend dates…';
+    document.getElementById('modal-overlay').classList.add('open');
+
+    fetchDivData(ticker).then(data => {
+      pendingDivData = data;
+      if (!data) { if (!saved.exDate && !saved.payDate) el.textContent = 'Dividend dates unavailable.'; return; }
+      el.textContent = divDateLine({
+        exDate:  data.exDate  ? data.exDate.getTime()  : saved.exDate,
+        payDate: data.payDate ? data.payDate.getTime() : saved.payDate,
+        amount:  data.amount  ?? saved.amount,
+      });
+    });
+  }
+
+  function saveAlerts() {
+    const ticker    = alertRow.dataset.ticker;
+    const enabled   = document.getElementById('alert-enabled').checked;
+    const exDivDays = parseInt(document.getElementById('alert-ex-days').value)  || 0;
+    const payDays   = parseInt(document.getElementById('alert-pay-days').value) || 0;
+    const all  = JSON.parse(localStorage.getItem('alphapicks_div_alerts') || '{}');
+    const prev = all[ticker] || {};
+    all[ticker] = {
+      enabled, exDivDays, payDays,
+      exDate:       pendingDivData?.exDate?.getTime()  ?? prev.exDate,
+      payDate:      pendingDivData?.payDate?.getTime() ?? prev.payDate,
+      amount:       pendingDivData?.amount             ?? prev.amount,
+      estimatedEx:  pendingDivData?.estimatedEx        ?? prev.estimatedEx  ?? false,
+      estimatedPay: pendingDivData?.estimatedPay       ?? prev.estimatedPay ?? false,
+    };
+    localStorage.setItem('alphapicks_div_alerts', JSON.stringify(all));
+    const bell = alertRow.querySelector('.bell-btn');
+    if (bell) bell.classList.toggle('alert-on', enabled);
+    closeModal();
+  }
+
+  function estimateNextDiv(divEvents) {
+    const entries = Object.values(divEvents)
+      .map(e => ({ ts: e.date * 1000, amount: e.amount }))
+      .sort((a, b) => a.ts - b.ts);
+    if (!entries.length) return null;
+    const recent = entries.slice(-6);
+    let avgMs = 91 * 24 * 3600 * 1000;
+    if (recent.length >= 2) {
+      const gaps = [];
+      for (let i = 1; i < recent.length; i++) gaps.push(recent[i].ts - recent[i - 1].ts);
+      avgMs = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+    }
+    const last = entries[entries.length - 1];
+    const now  = Date.now();
+    let nextTs = last.ts;
+    while (nextTs <= now) nextTs += avgMs;
+    return { exDate: new Date(nextTs), payDate: null, amount: last.amount, estimated: true };
+  }
+
+  async function fetchDivData(ticker) {
+    if (divCache[ticker]) return divCache[ticker];
+    const now = Date.now();
+    const [chartData, v7data] = await Promise.all([
+      fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2y&events=div&_cb=${Date.now()}`),
+      fetchJSON(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&formatted=false&_cb=${Date.now()}`),
+    ]);
+    const q = v7data?.quoteResponse?.result?.[0];
+    const v7ExTs     = q?.exDividendDate ? q.exDividendDate * 1000 : null;
+    const declaredEx = v7ExTs && v7ExTs > now ? new Date(v7ExTs) : null;
+    const v7PayTs     = q?.dividendDate ? q.dividendDate * 1000 : null;
+    const declaredPay = v7PayTs && v7PayTs > now ? new Date(v7PayTs) : null;
+    const divEvents = chartData?.chart?.result?.[0]?.events?.dividends;
+    let amount = null;
+    if (divEvents && Object.keys(divEvents).length) {
+      const sorted = Object.values(divEvents).sort((a, b) => a.date - b.date);
+      amount = sorted[sorted.length - 1].amount;
+    }
+    if (declaredEx) {
+      const result = { exDate: declaredEx, payDate: declaredPay, amount, estimatedEx: false, estimatedPay: !declaredPay };
+      divCache[ticker] = result; return result;
+    }
+    if (divEvents && Object.keys(divEvents).length) {
+      const est = estimateNextDiv(divEvents);
+      if (est) {
+        const result = { exDate: est.exDate, payDate: declaredPay, amount: est.amount, estimatedEx: true, estimatedPay: !declaredPay };
+        divCache[ticker] = result; return result;
+      }
+    }
+    return { exDate: null, payDate: null, amount: null };
+  }
+
+  function showDivToast(ticker, label, daysUntil, amount, isPay) {
+    const container = document.getElementById('div-toasts');
+    const toast = document.createElement('div');
+    toast.className = 'div-toast' + (isPay ? ' pay' : '');
+    const icon = isPay ? '💰' : '📅';
+    const when = daysUntil === 0 ? 'TODAY' : `in ${daysUntil} day${daysUntil > 1 ? 's' : ''}`;
+    const amtStr = amount ? ` · $${amount.toFixed(4)}/sh` : '';
+    toast.innerHTML = `
+      <span class="div-toast-icon">${icon}</span>
+      <span class="div-toast-body"><strong>${ticker}</strong> ${label} <strong>${when}</strong>${amtStr}</span>
+      <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+    container.appendChild(toast);
+  }
+
+  // ── Daily portfolio log ───────────────────────────────────────────────────
+  function captureLogEntry(force = false) {
+    const parseNum = str => {
+      if (!str || str === '—') return '';
+      const m = str.replace(/,/g, '').match(/-?\d+\.?\d*/);
+      return m ? parseFloat(m[0]) : '';
+    };
+    try {
+      const etNow  = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const dateStr = `${String(etNow.getDate()).padStart(2,'0')}-${MON[etNow.getMonth()]}-${etNow.getFullYear()}`;
+      const dateKey = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
+      const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
+      const isToday = e => e.date === dateStr || e._key === dateKey || e.date === dateKey;
+      if (raw.some(isToday) && !force) return;
+      const log = raw.filter(e => !isToday(e));
+      const g    = id => document.getElementById(id)?.textContent?.trim() || '';
+      const gSpy = id => { const t = g(id); return parseNum(t.includes(':') ? t.split(':').pop() : t); };
+      const entry = {
+        date: dateStr, _key: dateKey,
+        totalInvested: parseNum(g('stat-total-invested')),
+        currentValue:  parseNum(g('stat-total-value')),
+        dailyChange:   parseNum(g('stat-daily-change')),
+        totalChange:   parseNum(g('stat-total-gain')),
+        pctChange:     parseNum(g('stat-pct-change')),
+        spyPct:        gSpy('stat-spy-pct'),
+        annualReturn:  parseNum(g('stat-annual-return')),
+        spyReturn:     gSpy('stat-spy-return'),
+        usdils:        parseNum(g('usdils-box')),
+      };
+      const domCards = [...document.querySelectorAll('#holdings-list .holding-card[data-ticker]')].reverse();
+      domCards.forEach(card => {
+        entry[card.dataset.ticker] = parseNum(card.querySelector('.cur-price')?.textContent?.trim());
+      });
+      entry._tickers = domCards.map(r => r.dataset.ticker);
+      log.unshift(entry);
+      localStorage.setItem('alphapicks_log', JSON.stringify(log));
+      console.log(`[Log] captured entry for ${dateStr} — log now has ${log.length} entries`);
+
+      const container = document.getElementById('div-toasts');
+      const toast = document.createElement('div');
+      toast.className = 'div-toast log';
+      toast.innerHTML = `
+        <span class="div-toast-icon">📊</span>
+        <span class="div-toast-body"><strong>Daily log captured</strong></span>
+        <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+      container.appendChild(toast);
+    } catch (err) {
+      console.error('[AlphaPicks] captureLogEntry failed:', err);
+    }
+  }
+
+  function checkDailyLog() {
+    const etStr  = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const etNow  = new Date(etStr);
+    const hour   = etNow.getHours();
+    const dow    = etNow.getDay();
+    const dateStr = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
+    const isHoliday = usMarketHolidays(etNow.getFullYear()).has(dateStr);
+    if (hour < 16)                          return;
+    if (dow === 0 || dow === 6 || isHoliday) return;
+    captureLogEntry(true);
+  }
+
+  function scheduleDailyLog() {
+    const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const hour = etNow.getHours(), min = etNow.getMinutes(), sec = etNow.getSeconds();
+    if (hour >= 16) return;
+    const secsUntilClose = (16 * 3600 + 10) - (hour * 3600 + min * 60 + sec);
+    setTimeout(checkDailyLog, secsUntilClose * 1000);
+  }
+
+
+  // ── Sync: HOME (local server) or AWAY (JSONBin / cache) ──────────────────
+  function updateModeBadge(source) {
+    const badge = document.getElementById('mode-badge');
+    if (!badge) return;
+    if (source === 'local') {
+      badge.textContent = '🏠 Home';
+      badge.className   = 'mode-badge home';
+    } else if (source === 'cloud') {
+      badge.textContent = '☁ Away';
+      badge.className   = 'mode-badge away';
+    } else if (source === 'cache') {
+      badge.textContent = '📦 Cached';
+      badge.className   = 'mode-badge away';
+    }
+  }
+
+  async function syncFromCloud() {
+    const ph = document.getElementById('sync-placeholder');
+    let data   = null;
+    let source = null;
+
+    dbg(`HOME_MODE=${HOME_MODE} v0505b`);
+    if (HOME_MODE) {
+      // ── Home WiFi: fetch snapshot from local server ───────────────────────
+      // 4-second timeout: on mobile data the LAN IP hangs indefinitely otherwise.
+      const ac  = new AbortController();
+      const tid = setTimeout(() => ac.abort(), 4000);
+      try {
+        dbg('trying local server…');
+        const resp = await fetch('/mobile-data', { cache: 'no-store', signal: ac.signal });
+        clearTimeout(tid);
+        if (resp.ok) {
+          data   = await resp.json();
+          source = 'local';
+          dbg('local server OK');
+        } else if (resp.status === 404) {
+          if (ph) ph.textContent = 'No data yet — open the desktop app and let it refresh once to push your positions.';
+          return false;
+        }
+      } catch (e) {
+        clearTimeout(tid);
+        dbg(`local server fail: ${e.message} → trying Gist`);
+        HOME_MODE = false;
+      }
+    }
+
+    if (!HOME_MODE) {
+      // ── Away: read from GitHub Gist via codetabs CORS proxy ──────────────
+      if (GIST_USER !== 'YOUR_GITHUB_USER' && GIST_ID !== 'YOUR_GIST_ID') {
+        const cb     = Date.now();
+        const rawUrl = `https://gist.githubusercontent.com/${GIST_USER}/${GIST_ID}/raw/mobile_data.json`;
+        const fetchWithTimeout = (url, ms = 5000, opts = {}) => {
+          const ac = new AbortController();
+          const t  = setTimeout(() => ac.abort(), ms);
+          return fetch(url, { cache: 'no-store', signal: ac.signal, ...opts }).finally(() => clearTimeout(t));
+        };
+        const attempts = [
+          // GitHub REST API — authenticated, reliable CORS from any origin
+          { label: 'gh-api', fn: () => fetchWithTimeout(`https://api.github.com/gists/${GIST_ID}`, 8000,
+                { headers: { 'Authorization': `Bearer ${GIST_TOKEN}`, 'Accept': 'application/vnd.github+json' } })
+              .then(async r => {
+                if (!r.ok) throw new Error(`status ${r.status}`);
+                const g = await r.json();
+                const content = g?.files?.['mobile_data.json']?.content;
+                if (!content) throw new Error('no file content');
+                // Return a fake Response carrying the parsed JSON
+                return { ok: true, _json: JSON.parse(content) };
+              })
+          },
+          // Direct raw URL (works when served from local server)
+          { label: 'direct',   fn: () => fetchWithTimeout(`${rawUrl}?_cb=${cb}`) },
+          // codetabs CORS proxy
+          { label: 'codetabs', fn: () => fetchWithTimeout(`https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(rawUrl)}`) },
+        ];
+        for (const { label, fn } of attempts) {
+          try {
+            dbg(`Gist via ${label}…`);
+            const resp = await fn();
+            dbg(`${label} ok`);
+            const json = resp._json ?? await resp.json();
+            dbg(`${label} parsed, pos=${json?.activePositions?.length ?? 'none'}`);
+            if (json?.activePositions?.length) {
+              data   = json;
+              source = 'cloud';
+              break;
+            }
+          } catch (e) {
+            dbg(`${label} ERR: ${e.message}`);
+          }
+        }
+        if (!data) dbg('all Gist attempts failed → cache');
+      } else {
+        dbg('GIST_USER/ID not configured');
+      }
+    }
+
+    // ── Fallback to localStorage cache (server miss, away, or offline) ───────
+    if (!data) {
+      const cached = localStorage.getItem('mobile_positions_cache');
+      if (cached) {
+        try {
+          data   = JSON.parse(cached);
+          source = 'cache';
+          dbg('loaded from localStorage cache');
+        } catch { dbg('cache parse error'); }
+      } else {
+        dbg('no localStorage cache');
+      }
+    }
+
+    if (!data?.activePositions?.length) {
+      dbg('no data — showing placeholder');
+      if (ph) {
+        ph.textContent = 'No data yet — open the desktop app at home and let it refresh once to cache your positions.';
+      }
+      return false;
+    }
+    dbg(`rendering ${data.activePositions.length} positions, source=${source}`);
+    if (data.ts) document.body.dataset.syncTs = data.ts;
+
+    // Cache locally for offline/away fallback
+    if (source !== 'cache') {
+      localStorage.setItem('mobile_positions_cache', JSON.stringify(data));
+    }
+
+    updateModeBadge(source);
+
+    // Clear existing cards and re-render
+    // Only wipe if we have fresh data — never leave the user with a blank screen
+    const list = document.getElementById('holdings-list');
+    if (source === 'local' || source === 'cloud') {
+      list.querySelectorAll('.holding-card').forEach(c => c.remove());
+    }
+
+    // Apply localStorage from synced data
+    localStorage.setItem('alphapicks_sold_rows',  JSON.stringify(data.soldRows || []));
+    localStorage.setItem('alphapicks_sales',       JSON.stringify(data.sales   || []));
+    localStorage.setItem('alphapicks_div_alerts',  JSON.stringify(data.alerts  || {}));
+    localStorage.setItem('alphapicks_sold', JSON.stringify((data.soldRows || []).map(r => r.id)));
+
+    // Render positions (batch — sort once at end)
+    data.activePositions.forEach(pos => appendPositionCard(pos, true));
+    mergePositionDuplicates();
+    sortPositions();
+
+    // Render sold rows
+    (data.soldRows || []).forEach(appendSoldCard);
+
+    syncRows();
+    if (ph) ph.remove();
+
+    // Cache Alpha Picks stats from desktop — mobile is a terminal, no independent computation
+    _syncedAlphaPicksIrrRate    = data.alphaPicksIrrRate      ?? null;
+    _syncedAlphaPicksSpyIrrRate = data.alphaPicksSpyIrrRate   ?? null;
+    _syncedAlphaPicksSpySimRet  = data.alphaPicksSpySimpleRet ?? null;
+
+    // S&P header chip — replicate desktop value verbatim
+    if (data.spyChipText) {
+      const spyEl    = document.getElementById('spy-pct-box');
+      const labelEl  = document.getElementById('spy-chip-label');
+      if (spyEl)   { spyEl.textContent = data.spyChipText; spyEl.style.color = data.spyChipColor || '#8b949e'; }
+      if (labelEl && data.spyChipLabel) labelEl.textContent = data.spyChipLabel;
+    }
+
+    // Render Brokerage tab
+    if (data.brokerage?.length) {
+      _lastBrokData = { positions: data.brokerage,
+        irrRate: data.brokerageIrrRate ?? null, spyIrrRate: data.brokerageSpyIrrRate ?? null, spySimRet: data.brokerageSpySimpleRet ?? null };
+      renderAccountCards('brokerage-list', 'brok-total-bar', data.brokerage,
+        data.brokerageIrrRate ?? null, data.brokerageSpyIrrRate ?? null, data.brokerageSpySimpleRet ?? null);
+    }
+    // Render Retirement tab
+    if (data.ira?.length) {
+      _lastIraData = { positions: data.ira,
+        irrRate: data.iraIrrRate ?? null, spyIrrRate: data.iraSpyIrrRate ?? null, spySimRet: data.iraSpySimpleRet ?? null };
+      renderAccountCards('ira-list', 'ira-total-bar', data.ira,
+        data.iraIrrRate ?? null, data.iraSpyIrrRate ?? null, data.iraSpySimpleRet ?? null);
+    }
+    // Render Allocation tab
+    if (data.allocation) renderAllocDonuts(data.allocation);
+
+    console.log('[Sync] rendered:', data.activePositions.length, 'AP +',
+      (data.brokerage||[]).length, 'brok +', (data.ira||[]).length, 'IRA, source:', source,
+      'ts:', new Date(data.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }));
+    return true;
+  }
+
+  // ── Tab switching ─────────────────────────────────────────────────────────
+  function switchTab(id) {
+    ['alphapicks','brokerage','ira','allocation'].forEach(t => {
+      document.getElementById(`tab-${t}`)?.classList.toggle('active', t === id);
+      document.getElementById(`tab-btn-${t}`)?.classList.toggle('active', t === id);
+    });
+  }
+
+  // ── Render Brokerage / IRA cards ──────────────────────────────────────────
+  const ALLOC_COLORS = ['#00d4aa','#58a6ff','#f0883e','#bc8cff','#3fb950','#e3b341','#ff7b72','#79c0ff','#d2a8ff','#7ee787'];
+
+  function fmtAcct(n) { return n != null ? `$${fmtD(n)}` : '—'; }
+
+  function renderAccountCards(listId, totalBarId, positions, tabIrrRate = null, tabSpyIrrRate = null, tabSpySimpleRet = null) {
+    const list     = document.getElementById(listId);
+    const totalBar = document.getElementById(totalBarId);
+    if (!list) return;
+    list.innerHTML = '';
+    let totalVal = 0, totalCost = 0, totalDayChange = 0, hasDayChange = false;
+    let totalHgiIncome = 0;
+
+    positions.forEach(pos => {
+      // hgi/private positions (HGI fund): add to totals using adjustedCost, skip card rendering
+      // mirrors refreshSectionStats logic on desktop exactly
+      if (pos.hgi) {
+        const hgiVal  = pos.mktVal || 0;
+        const hgiCost = pos.adjustedCost || pos.costBasis || 0;
+        totalVal  += hgiVal;
+        totalCost += hgiCost;
+        totalHgiIncome += pos.hgiIncome || 0;
+        return;
+      }
+
+      const _priceShares = pos.currentPrice > 0 ? pos.currentPrice * (pos.shares || 0) : 0;
+      // mktVal / costBasis may be 0 for newly-settled positions — fall back to currentPrice × shares
+      const mktVal = pos.mktVal  > 0 ? pos.mktVal  : _priceShares;
+      const cost   = pos.costBasis > 0 ? pos.costBasis : _priceShares;
+      const gl     = mktVal - cost;
+      const glPct  = cost > 0 ? (gl / cost * 100) : 0;
+      const isGain = gl >= 0;
+      const sign   = isGain ? '+' : '-';
+      const cls    = isGain ? 'gain' : 'loss';
+      const pps    = pos.shares > 0 ? cost / pos.shares : 0;
+      // When live price is unavailable (sync before price refresh), estimate from mktVal/shares
+      const hasLivePrice  = pos.currentPrice > 0;
+      const displayPrice  = hasLivePrice ? pos.currentPrice
+                          : (pos.shares > 0 && mktVal > 0 ? mktVal / pos.shares : 0);
+      // Color: use actual gain/loss direction when price is estimated; gray when unknown
+      const priceColor = displayPrice === 0 ? '#8b949e'
+                       : hasLivePrice
+                         ? (displayPrice > pps ? '#3fb950' : displayPrice < pps ? '#ff7b72' : '#8b949e')
+                         : (isGain ? '#3fb950' : '#ff7b72');
+      totalVal  += mktVal;
+      totalCost += cost;
+
+      // Accumulate daily change from per-position dayPct
+      const dayPct = (pos.dayPct != null && !isNaN(pos.dayPct)) ? pos.dayPct : null;
+      if (dayPct != null) { totalDayChange += mktVal * dayPct / 100; hasDayChange = true; }
+
+      // Day change display
+      const dayChgColor = dayPct != null ? (dayPct >= 0 ? '#3fb950' : '#ff7b72') : '#8b949e';
+      const dayChgText  = dayPct != null ? `${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%` : '—';
+
+      // Per-position IRR — prefer desktop-computed XIRR rate from sync; fall back to CAGR
+      const posDate = pos.date || MOBILE_BUY_DATES[pos.symbol] || '';
+      let irrText = '—', irrColor = '#8b949e';
+      if (pos.irrRate != null) {
+        const irrPct = pos.irrRate * 100;
+        irrText  = irrPct > 1000 ? 'HIGH' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
+        irrColor = irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72';
+      } else if (posDate && cost > 0 && mktVal > 0) {
+        const yrs = (Date.now() - new Date(posDate + 'T12:00:00').getTime()) / (365.25 * 24 * 3600 * 1000);
+        if (yrs > 1 / 365) {
+          const irrPct = (Math.pow(mktVal / cost, 1 / yrs) - 1) * 100;
+          irrText  = irrPct > 1000 ? 'HIGH' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
+          irrColor = irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72';
+        }
+      }
+
+      const dateStr = posDate ? fmtDate(posDate) : '—';
+
+      const card = document.createElement('div');
+      card.className = 'holding-card';
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="card-left">
+            <div class="card-ticker-row">
+              <span class="ticker-badge">${pos.symbol || '—'}</span>
+              <span class="company-name">${pos.company || ''}</span>
+            </div>
+            <div class="card-meta">
+              <span class="date-cell">${dateStr}</span> ·
+              <span class="qty">${pos.shares != null ? fmtShares(pos.shares) : '—'}</span> sh @
+              <span class="pps">$${fmtD(pps)}</span> =
+              <span class="invested">$${fmtD(cost)}</span>
+            </div>
+          </div>
+          <div class="card-right">
+            <span class="day-chg" style="color:${dayChgColor}">${dayChgText}</span>
+            <span class="cur-price" style="color:${priceColor}">$${fmtPrice(displayPrice)}</span>
+          </div>
+        </div>
+        <div class="card-bot">
+          <div class="card-bot-left">
+            <span class="bot-label">Value</span>
+            <span class="cur-value ${cls}">$${fmtD(mktVal)}</span>
+          </div>
+          <div class="card-bot-center">
+            <span class="bot-label">G/L</span>
+            <span class="gain-loss"><span class="${cls}">${sign}$${fmtD(Math.abs(gl))} (${glPct >= 0 ? '+' : ''}${glPct.toFixed(1)}%)</span></span>
+          </div>
+          <div class="card-bot-right">
+            <span class="bot-label">IRR</span>
+            <span class="irr-val" style="color:${irrColor}">${irrText}</span>
+          </div>
+        </div>`;
+      list.appendChild(card);
+    });
+
+    // ── Stats tiles (matching Alpha Picks 6-tile layout) ──────────────────────
+    // totalHgiIncome: interest income from HGI/private positions — added to G/L
+    // mirrors iTotGL += (mktVal - cost) + hgiIncome in desktop refreshSectionStats
+    const totalGl    = (totalVal - totalCost) + totalHgiIncome;
+    const totalGlPct = totalCost > 0 ? (totalGl / totalCost * 100) : 0;
+    const isPos      = totalGl >= 0;
+
+    // Daily change tile
+    let dailyValHtml = '<span style="color:#8b949e">—</span>', dailySubHtml = '';
+    if (hasDayChange) {
+      const prevVal  = totalVal - totalDayChange;
+      const dailyPct = prevVal !== 0 ? (totalDayChange / prevVal) * 100 : 0;
+      const dcUp     = totalDayChange >= 0;
+      dailyValHtml = `<span style="color:${dcUp ? '#3fb950' : '#ff7b72'}">${dcUp ? '+' : '-'}$${fmtD(Math.abs(totalDayChange))}</span>`;
+      dailySubHtml = `<div class="stat-sub" style="color:${dcUp ? '#3fb950' : '#ff7b72'}">${dcUp ? '+' : ''}${dailyPct.toFixed(2)}%</div>`;
+    }
+
+    // Annual return tile — use pre-computed desktop XIRR rate when available (exact match to desktop)
+    // Color: binary green/red (≥0 = green) — matches desktop renderTabStats
+    let annualValHtml = '<span style="color:#8b949e">—</span>';
+    if (tabIrrRate != null) {
+      const pct = tabIrrRate * 100;
+      annualValHtml = `<span style="color:${pct >= 0 ? '#3fb950' : '#ff7b72'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
+    } else {
+      // Fallback: XIRR from sync data (no full transaction history, but correct for single-entry positions)
+      const xPairs = [];
+      let termVal = 0;
+      positions.forEach(pos => {
+        if (pos.hgi) return;
+        const posDate = pos.date || MOBILE_BUY_DATES[pos.symbol] || '';
+        if (!posDate) return;
+        const _ps  = pos.currentPrice > 0 ? pos.currentPrice * (pos.shares || 0) : 0;
+        const c    = pos.costBasis > 0 ? pos.costBasis : _ps;
+        const mv   = pos.mktVal    > 0 ? pos.mktVal    : _ps;
+        if (c > 0 && mv > 0) {
+          xPairs.push({ amount: -c, date: new Date(posDate + 'T12:00:00') });
+          termVal += mv;
+        }
+      });
+      if (xPairs.length > 0 && termVal > 0) {
+        xPairs.push({ amount: termVal, date: new Date() });
+        xPairs.sort((a, b) => a.date - b.date);
+        if (xPairs.some(p => p.amount < 0)) {
+          const rate = calcXIRR(xPairs.map(p => p.amount), xPairs.map(p => p.date));
+          if (rate !== null) {
+            const pct = rate * 100;
+            annualValHtml = `<span style="color:${pct >= 0 ? '#3fb950' : '#ff7b72'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
+          }
+        }
+      }
+    }
+
+    // S&P benchmark sub-text — mirrors desktop renderTabStats
+    const fmtSpyPct = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    const spyPctSubHtml   = tabSpySimpleRet != null
+      ? `<div class="stat-sub" style="color:${tabSpySimpleRet >= 0 ? '#3fb950' : '#ff7b72'}">S&P 500: ${fmtSpyPct(tabSpySimpleRet * 100)}</div>`
+      : `<div class="stat-sub" style="color:#8b949e">S&P 500: —</div>`;
+    const spyRetSubHtml   = tabSpyIrrRate != null
+      ? `<div class="stat-sub" style="color:${tabSpyIrrRate >= 0 ? '#3fb950' : '#ff7b72'}">S&P 500: ${fmtSpyPct(tabSpyIrrRate * 100)}</div>`
+      : `<div class="stat-sub" style="color:#8b949e">S&P 500: —</div>`;
+
+    if (totalBar) totalBar.innerHTML = `
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Invested</div>
+          <div class="stat-value">${fmtAcct(totalCost)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Current Value</div>
+          <div class="stat-value">${fmtAcct(totalVal)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Daily Change</div>
+          <div class="stat-value">${dailyValHtml}</div>
+          ${dailySubHtml}
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Change</div>
+          <div class="stat-value ${isPos ? 'green' : 'red'}">${isPos ? '+' : ''}${fmtAcct(Math.abs(totalGl))}</div>
+          <div class="stat-sub">${isPos ? '+' : ''}${totalGlPct.toFixed(1)}%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total % Change</div>
+          <div class="stat-value ${isPos ? 'green' : 'red'}">${isPos ? '+' : ''}${totalGlPct.toFixed(1)}%</div>
+          ${spyPctSubHtml}
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Annual Return</div>
+          <div class="stat-value">${annualValHtml}</div>
+          ${spyRetSubHtml}
+        </div>
+      </div>`;
+  }
+
+  // ── Render Allocation donuts ───────────────────────────────────────────────
+  function buildDonutStyle(slices, total) {
+    let cum = 0;
+    const parts = slices.map((s, i) => {
+      const pct   = s.value / total * 100;
+      const color = ALLOC_COLORS[i % ALLOC_COLORS.length];
+      const start = cum.toFixed(2);
+      cum += pct;
+      return `${color} ${start}% ${cum.toFixed(2)}%`;
+    });
+    return `background:conic-gradient(${parts.join(',')})`;
+  }
+
+  function renderAllocDonuts(allocation) {
+    const grid = document.getElementById('alloc-grid');
+    const totalBar = document.getElementById('alloc-total-bar');
+    if (!grid || !allocation) return;
+
+    const panels = [
+      { title: 'Asset Class', slices: allocation.byAssetClass },
+      { title: 'Sector',      slices: allocation.bySector },
+      { title: 'Geography',   slices: allocation.byRegion },
+      { title: 'Currency',    slices: allocation.byCurrency },
+    ];
+
+    grid.innerHTML = panels.map(p => {
+      let slices = p.slices || [];
+      const total  = slices.reduce((s, x) => s + x.value, 0);
+      if (!slices.length || total === 0) return `<div class="alloc-panel-mobile"><div class="alloc-panel-title">${p.title}</div><div style="color:#8b949e;font-size:.75rem">No data</div></div>`;
+
+      // Group segments < 1% of total into a single "Other" slice (mirrors desktop logic)
+      const THRESHOLD = 0.01;
+      const main = [], other = { label: 'Other', value: 0, tickers: [] };
+      slices.forEach(s => {
+        if (s.value / total < THRESHOLD) {
+          other.value += s.value;
+          other.tickers.push(...(s.tickers || []).filter(t => !other.tickers.includes(t)));
+        } else {
+          main.push(s);
+        }
+      });
+      if (other.value > 0) main.push(other);
+      slices = main;
+
+      const style  = buildDonutStyle(slices, total);
+      const legendHTML = slices.map((s, i) => {
+        const pct   = (s.value / total * 100).toFixed(1);
+        const color = ALLOC_COLORS[i % ALLOC_COLORS.length];
+        const lbl   = s.label || (s.tickers?.[0] ?? '');
+        return `<div class="alloc-legend-item">
+          <span class="alloc-legend-dot" style="background:${color}"></span>
+          <span class="alloc-legend-lbl" title="${lbl}">${lbl}</span>
+          <span class="alloc-legend-pct">${pct}%</span>
+        </div>`;
+      }).join('');
+      return `
+        <div class="alloc-panel-mobile">
+          <div class="alloc-panel-title">${p.title}</div>
+          <div class="alloc-panel-body">
+            <div class="alloc-donut-wrap">
+              <div class="alloc-donut" style="${style}"></div>
+              <div class="alloc-donut-hole"></div>
+            </div>
+            <div class="alloc-legend">${legendHTML}</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function usMarketHolidays(year) {
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    function nthWeekday(y, m, n, wd) {
+      const d = new Date(y, m, 1); let count = 0;
+      while (true) { if (d.getDay() === wd && ++count === n) return new Date(d); d.setDate(d.getDate()+1); }
+    }
+    function lastWeekday(y, m, wd) {
+      const d = new Date(y, m+1, 0);
+      while (d.getDay() !== wd) d.setDate(d.getDate()-1);
+      return new Date(d);
+    }
+    function observed(date) {
+      const wd = date.getDay();
+      if (wd === 6) date.setDate(date.getDate()-1);
+      else if (wd === 0) date.setDate(date.getDate()+1);
+      return date;
+    }
+    function easter(y) {
+      const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,
+            f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),
+            h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,
+            l=(32+2*e+2*i-h-k)%7,mn=Math.floor((a+11*h+22*l)/451),
+            mo=Math.floor((h+l-7*mn+114)/31)-1,dy=((h+l-7*mn+114)%31)+1;
+      return new Date(y, mo, dy);
+    }
+    const e = easter(year); e.setDate(e.getDate()-2);
+    return new Set([
+      fmt(observed(new Date(year,  0,  1))),
+      fmt(nthWeekday(year, 0, 3, 1)),
+      fmt(nthWeekday(year, 1, 3, 1)),
+      fmt(e),
+      fmt(lastWeekday(year, 4, 1)),
+      fmt(observed(new Date(year,  5, 19))),
+      fmt(observed(new Date(year,  6,  4))),
+      fmt(nthWeekday(year, 8, 1, 1)),
+      fmt(nthWeekday(year, 10, 4, 4)),
+      fmt(observed(new Date(year, 11, 25))),
+    ]);
+  }
+
+  function nextTradingDay(date) {
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const d = new Date(date);
+    while (true) {
+      const wd = d.getDay();
+      if (wd !== 0 && wd !== 6 && !usMarketHolidays(d.getFullYear()).has(fmt(d))) return new Date(d);
+      d.setDate(d.getDate()+1);
+    }
+  }
+
+  function checkBuyCallReminder() {
+    const ilNow  = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' }));
+    const year   = ilNow.getFullYear(), month = ilNow.getMonth(), hour = ilNow.getHours();
+    const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const todayStr = fmt(ilNow);
+    const triggerDates = [new Date(year, month, 1), new Date(year, month, 15)].map(nextTradingDay).map(fmt);
+    if (!triggerDates.includes(todayStr)) return;
+    if (hour < 7) return;
+    const notified = JSON.parse(localStorage.getItem('alphapicks_buycall_notified') || '{}');
+    if (notified[todayStr]) return;
+    const container = document.getElementById('div-toasts');
+    const toast = document.createElement('div');
+    toast.className = 'div-toast buycall';
+    toast.innerHTML = `
+      <span class="div-toast-icon">📣</span>
+      <span class="div-toast-body"><strong>Stock Buy Call at Alpha Picks</strong></span>
+      <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+    container.appendChild(toast);
+    notified[todayStr] = true;
+    localStorage.setItem('alphapicks_buycall_notified', JSON.stringify(notified));
+  }
+
+  async function checkDivAlerts() {
+    const allAlerts = JSON.parse(localStorage.getItem('alphapicks_div_alerts') || '{}');
+    const enabled = tickers.filter(t => allAlerts[t]?.enabled);
+    if (!enabled.length) return;
+    const notified = JSON.parse(localStorage.getItem('alphapicks_notified') || '{}');
+    let changed = false;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    await Promise.all(enabled.map(async ticker => {
+      const cfg = allAlerts[ticker];
+      let fetched = divCache[ticker];
+      if (!fetched) fetched = await fetchDivData(ticker);
+      const exDate  = fetched?.exDate  || (cfg.exDate  ? new Date(cfg.exDate)  : null);
+      const payDate = fetched?.payDate || (cfg.payDate ? new Date(cfg.payDate) : null);
+      const amount  = fetched?.amount  ?? cfg.amount ?? null;
+      if (!exDate && !payDate) return;
+      const checks = [
+        { date: exDate,  key: `${ticker}_ex`,  label: 'ex-div',   days: cfg.exDivDays, isPay: false },
+        { date: payDate, key: `${ticker}_pay`, label: 'pay date', days: cfg.payDays,   isPay: true  },
+      ];
+      for (const { date, key, label, days, isPay } of checks) {
+        if (!date || days == null) continue;
+        const dateStr  = date.toISOString().split('T')[0];
+        const notifKey = `${key}_${dateStr}`;
+        if (notified[notifKey]) continue;
+        const eventDay = new Date(date); eventDay.setHours(0, 0, 0, 0);
+        const daysUntil = Math.round((eventDay - today) / 86400000);
+        if (daysUntil < 0 || daysUntil > days) continue;
+        showDivToast(ticker, label, daysUntil, amount, isPay);
+        notified[notifKey] = true; changed = true;
+      }
+    }));
+    if (changed) localStorage.setItem('alphapicks_notified', JSON.stringify(notified));
+  }
+
+  // ── Sync rows from DOM ────────────────────────────────────────────────────
+  function syncRows() {
+    rows    = Array.from(document.querySelectorAll('#holdings-list .holding-card[data-ticker]'));
+    tickers = rows.map(r => r.dataset.ticker);
+    const total = rows.reduce((s, r) => s + parseFloat(r.dataset.cost), 0);
+    document.getElementById('stat-total-invested').textContent = `$${fmtD(total)}`;
+    syncBellStates();
+  }
+
+  // ── Modal logic ───────────────────────────────────────────────────────────
+  let sellRow = null;
+
+  function openBuy() {
+    document.getElementById('buy-panel').style.display  = '';
+    document.getElementById('sell-panel').style.display = 'none';
+    document.getElementById('alert-panel').style.display = 'none';
+    document.getElementById('buy-date').value   = new Date().toISOString().split('T')[0];
+    document.getElementById('buy-ticker').value  = '';
+    document.getElementById('buy-shares').value  = '';
+    document.getElementById('buy-price').value   = '';
+    const c = document.getElementById('buy-company');
+    c.value = ''; c.placeholder = 'Auto-filled from ticker';
+    c.setAttribute('readonly', ''); c.style.opacity = '0.7'; c.style.cursor = 'default';
+    document.getElementById('modal-overlay').classList.add('open');
+    document.getElementById('buy-ticker').focus();
+  }
+
+  function openSell(row) {
+    sellRow = row;
+    const ticker  = row.dataset.ticker;
+    const company = row.querySelector('.company-name').textContent;
+    const shares  = parseFloat(row.dataset.shares);
+    document.getElementById('sell-title').textContent = `Sell ${ticker}`;
+    document.getElementById('sell-text').textContent  = company;
+    const sharesInput = document.getElementById('sell-shares');
+    sharesInput.value = shares; sharesInput.max = shares;
+    document.getElementById('sell-date').value = new Date().toISOString().split('T')[0];
+    const priceText = row.querySelector('.cur-price').innerText.replace(/[^0-9.]/g, '');
+    document.getElementById('sell-price').value = parseFloat(priceText) || '';
+    updateSellProceeds();
+    document.getElementById('buy-panel').style.display   = 'none';
+    document.getElementById('alert-panel').style.display = 'none';
+    document.getElementById('sell-panel').style.display  = '';
+    document.getElementById('modal-overlay').classList.add('open');
+  }
+
+  function updateSellProceeds() {
+    const shares = parseFloat(document.getElementById('sell-shares').value) || 0;
+    const price  = parseFloat(document.getElementById('sell-price').value)  || 0;
+    const total  = parseFloat(sellRow?.dataset.shares) || 0;
+    document.getElementById('sell-proceeds').value =
+      (shares && price) ? `$${fmtD(shares * price)}` : '';
+    document.getElementById('sell-confirm-btn').textContent =
+      shares >= total ? 'Sell All' : `Sell ${shares} Shares`;
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+    sellRow = null; alertRow = null;
+    document.getElementById('alert-panel').style.display = 'none';
+    document.getElementById('sell-panel').style.display  = 'none';
+  }
+
+  async function lookupTicker() {
+    const ticker = document.getElementById('buy-ticker').value.trim().toUpperCase();
+    if (!ticker) return;
+    const companyInput = document.getElementById('buy-company');
+    companyInput.value = 'Looking up…';
+    const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${ticker}&lang=en-US&region=US&quotesCount=10&newsCount=0&_cb=${Date.now()}`;
+    const searchData = await fetchJSON(searchUrl);
+    const match = searchData?.quotes?.find(q => q.symbol === ticker);
+    const name  = match?.longname ?? match?.shortname ?? null;
+    if (name) { companyInput.value = name; return; }
+    const quoteData = await fetchJSON(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${ticker}&formatted=false&_cb=${Date.now()}`);
+    const q = quoteData?.quoteResponse?.result?.[0];
+    if (q?.longName ?? q?.shortName) { companyInput.value = q.longName ?? q.shortName; return; }
+    const chartData = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_cb=${Date.now()}`);
+    const meta = chartData?.chart?.result?.[0]?.meta;
+    if (meta?.longName ?? meta?.shortName) { companyInput.value = meta.longName ?? meta.shortName; return; }
+    companyInput.value = ''; companyInput.placeholder = 'Not found — type manually';
+    companyInput.removeAttribute('readonly'); companyInput.style.opacity = '1'; companyInput.style.cursor = 'text';
+    companyInput.focus();
+  }
+
+  function confirmBuy() {
+    const date    = document.getElementById('buy-date').value;
+    const ticker  = document.getElementById('buy-ticker').value.trim().toUpperCase();
+    const shares  = parseFloat(document.getElementById('buy-shares').value);
+    const company = document.getElementById('buy-company').value.trim();
+    const pps     = parseFloat(document.getElementById('buy-price').value);
+    if (!date || !ticker || !shares || !pps) return;
+    const cost = +(shares * pps).toFixed(2);
+    const id   = `custom-${Date.now()}`;
+    const pos  = { id, ticker, company, shares, pps, cost, date };
+    const saved = JSON.parse(localStorage.getItem('alphapicks_positions') || '[]');
+    saved.push(pos);
+    localStorage.setItem('alphapicks_positions', JSON.stringify(saved));
+    appendPositionCard(pos);
+    syncRows();
+    closeModal();
+    fetchPrices();
+  }
+
+  function confirmSell() {
+    if (!sellRow) return;
+    const row = sellRow; sellRow = null;
+    const id          = row.dataset.id;
+    const ticker      = row.dataset.ticker;
+    const sharesEl    = document.getElementById('sell-shares');
+    const sellShares  = isFinite(sharesEl.valueAsNumber) ? sharesEl.valueAsNumber : parseFloat(sharesEl.value);
+    const sellPrice   = parseFloat(document.getElementById('sell-price').value);
+    const sellDate    = document.getElementById('sell-date').value;
+    const totalShares = parseFloat(row.dataset.shares);
+    const totalCost   = parseFloat(row.dataset.cost);
+    if (!sellShares || !sellPrice || !sellDate || sellShares > totalShares) return;
+
+    const proceeds  = +(sellShares * sellPrice).toFixed(2);
+    const remaining = +(totalShares - sellShares);
+
+    const sales = JSON.parse(localStorage.getItem('alphapicks_sales') || '[]');
+    sales.push({ id, ticker, date: sellDate, proceeds });
+    localStorage.setItem('alphapicks_sales', JSON.stringify(sales));
+
+    if (remaining < 0.001) {
+      const purchaseCost = parseFloat(row.dataset.originalCost ?? row.dataset.cost);
+      const purchaseDate = row.dataset.date;
+      sales[sales.length - 1].purchaseCost = purchaseCost;
+      sales[sales.length - 1].purchaseDate = purchaseDate;
+      localStorage.setItem('alphapicks_sales', JSON.stringify(sales));
+
+      const purchasePPS = parseFloat(row.querySelector('.pps').textContent.replace(/[^0-9.]/g, '')) || 0;
+      const soldRowData = {
+        id, ticker,
+        company:      row.querySelector('.company-name').textContent,
+        shares:       totalShares, purchasePPS, purchaseCost, purchaseDate,
+        sellPrice, proceeds, sellDate,
+      };
+      const soldRows = JSON.parse(localStorage.getItem('alphapicks_sold_rows') || '[]');
+      soldRows.push(soldRowData);
+      localStorage.setItem('alphapicks_sold_rows', JSON.stringify(soldRows));
+
+      row.remove();
+      appendSoldCard(soldRowData);
+
+      const sold = JSON.parse(localStorage.getItem('alphapicks_sold') || '[]');
+      if (!sold.includes(id)) sold.push(id);
+      localStorage.setItem('alphapicks_sold', JSON.stringify(sold));
+      const savedPos = JSON.parse(localStorage.getItem('alphapicks_positions') || '[]');
+      localStorage.setItem('alphapicks_positions', JSON.stringify(savedPos.filter(p => p.id !== id)));
+    } else {
+      const remCost = +(totalCost * (remaining / totalShares)).toFixed(2);
+      if (!row.dataset.originalCost) row.dataset.originalCost = row.dataset.cost;
+      row.dataset.shares = remaining; row.dataset.cost = remCost;
+      row.querySelector('.qty').textContent    = remaining;
+      row.querySelector('.amount').textContent = `$${fmtD(remCost)}`;
+      const mods = JSON.parse(localStorage.getItem('alphapicks_mods') || '{}');
+      mods[id] = { shares: remaining, cost: remCost, originalCost: parseFloat(row.dataset.originalCost) };
+      localStorage.setItem('alphapicks_mods', JSON.stringify(mods));
+    }
+
+    syncRows();
+    closeModal();
+    fetchPrices();
+  }
+
+  function appendSoldCard(sold) {
+    const list = document.getElementById('holdings-list');
+    const sellDateStr = fmtDate(sold.sellDate);
+    const gain = +(sold.proceeds - sold.purchaseCost).toFixed(2);
+    const pct  = (gain / sold.purchaseCost) * 100;
+    const isGain = gain >= 0, sign = isGain ? '+' : '-';
+    const cls = isGain ? 'gain' : 'loss', badgeCls = isGain ? 'badge-gain' : 'badge-loss';
+
+    const card = document.createElement('div');
+    card.className = 'holding-card sold-row';
+    card.dataset.soldId = sold.id;
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="card-left">
+          <div class="card-ticker-row">
+            <span class="ticker-badge">${sold.ticker}</span>
+            <span class="sold-badge">SOLD</span>
+            <span class="company-name">${sold.company}</span>
+          </div>
+          <div class="card-meta">
+            <span class="date-cell">${sellDateStr}</span> ·
+            <span class="qty">${fmtShares(sold.shares)}</span> sh @
+            <span class="pps">$${fmtD(sold.purchasePPS)}</span> ·
+            <span class="amount">$${fmtD(sold.purchaseCost)}</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <div class="cur-price">$${fmtD(sold.sellPrice)}</div>
+          <div class="cur-value ${cls}">$${fmtD(sold.proceeds)}</div>
+        </div>
+      </div>
+      <div class="card-bot">
+        <div class="gain-loss">
+          <span class="${cls}">${sign}$${fmtD(Math.abs(gain))}</span>
+          <span class="badge ${badgeCls}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>
+        </div>
+        <span class="weight" style="font-size:0.7rem;color:#8b949e">Sold</span>
+      </div>
+      <span class="num" style="display:none">—</span>`;
+    list.appendChild(card);
+  }
+
+  function appendPositionCard(pos, skipSort = false) {
+    const list    = document.getElementById('holdings-list');
+    const dateStr = fmtDate(pos.date);
+
+    const card = document.createElement('div');
+    card.className      = 'holding-card';
+    card.dataset.ticker = pos.ticker;
+    card.dataset.shares = pos.shares;
+    card.dataset.cost   = pos.cost;
+    card.dataset.date   = pos.date;
+    card.dataset.id     = pos.id;
+    if (pos.originalCost) card.dataset.originalCost = pos.originalCost;
+
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="card-left">
+          <div class="card-ticker-row">
+            <span class="ticker-badge">${pos.ticker}</span>
+            <span class="company-name">${pos.company}</span>
+          </div>
+          <div class="card-meta">
+            <span class="date-cell">${dateStr}</span> ·
+            <span class="qty">${fmtShares(pos.shares)}</span> sh @
+            <span class="pps">$${fmtD(pos.pps)}</span> =
+            <span class="invested">$${fmtD(pos.cost)}</span>
+          </div>
+        </div>
+        <div class="card-right">
+          <span class="day-chg" style="color:#8b949e">—</span>
+          <span class="cur-price">—</span>
+        </div>
+      </div>
+      <div class="card-bot">
+        <div class="card-bot-left">
+          <span class="bot-label">Value</span>
+          <span class="cur-value">—</span>
+        </div>
+        <div class="card-bot-center">
+          <span class="bot-label">G/L</span>
+          <span class="gain-loss">—</span>
+        </div>
+        <div class="card-bot-right">
+          <span class="bot-label">IRR</span>
+          <span class="irr-val">—</span>
+        </div>
+      </div>
+      <span class="amount" style="display:none">$${fmtD(pos.cost)}</span>
+      <span class="num"    style="display:none"></span>`;
+    list.appendChild(card);
+
+    // Pre-fill price cells from Gist data if available (avoids needing live FMP call)
+    // Use currentPrice if present, otherwise derive from mktVal / shares
+    const _prefillPrice = pos.currentPrice || (pos.mktVal && pos.shares ? pos.mktVal / pos.shares : null);
+    if (_prefillPrice) {
+      const price  = _prefillPrice;
+      const value  = price * pos.shares;
+      const gain   = value - pos.cost;
+      const gainPct = pos.cost ? gain / pos.cost * 100 : 0;
+      const dayChg = pos.dayPct != null ? pos.dayPct : null;
+      card.querySelector('.cur-price').textContent  = `$${fmtD(price)}`;
+      card.querySelector('.cur-value').textContent  = `$${fmtD(value)}`;
+      const glEl = card.querySelector('.gain-loss');
+      if (glEl) {
+        const cls = gain >= 0 ? 'gain' : 'loss';
+        glEl.innerHTML = `<span class="${cls}">${gain >= 0 ? '+' : ''}$${fmtD(Math.abs(gain))}</span> <span class="${cls}" style="font-size:.75em">${gain >= 0 ? '+' : ''}${gainPct.toFixed(1)}%</span>`;
+      }
+      if (dayChg != null) {
+        const dEl = card.querySelector('.day-chg');
+        if (dEl) { dEl.textContent = `${dayChg >= 0 ? '+' : ''}${dayChg.toFixed(2)}%`; dEl.style.color = dayChg >= 0 ? '#3fb950' : '#f85149'; }
+      }
+      // IRR
+      if (pos.date) {
+        const years = (Date.now() - new Date(pos.date).getTime()) / (365.25 * 86400000);
+        if (years > 0) {
+          const irr = Math.pow(value / pos.cost, 1 / years) - 1;
+          const iEl = card.querySelector('.irr-val');
+          if (iEl) { iEl.textContent = `${(irr * 100).toFixed(1)}%`; iEl.style.color = irr >= 0.1 ? '#3fb950' : irr >= 0.05 ? '#e3b341' : '#f85149'; }
+        }
+      }
+      card.dataset.currentPrice = price;
+      card.dataset.mktVal       = value;
+      card.dataset.dayPct       = dayChg ?? '';
+    }
+
+    if (!skipSort) sortPositions();
+  }
+
+  function mergePositionDuplicates() {
+    const list    = document.getElementById('holdings-list');
+    const allCards = Array.from(list.querySelectorAll('.holding-card[data-ticker]'));
+    const byTicker = {};
+    allCards.forEach(c => { const t = c.dataset.ticker; (byTicker[t] = byTicker[t] || []).push(c); });
+    Object.values(byTicker).forEach(group => {
+      if (group.length < 2) return;
+      const totalShares = group.reduce((s, c) => s + parseFloat(c.dataset.shares), 0);
+      const totalCost   = group.reduce((s, c) => s + parseFloat(c.dataset.cost),   0);
+      const oldest      = group.reduce((d, c) => c.dataset.date < d ? c.dataset.date : d, group[0].dataset.date);
+      const pps         = totalCost / totalShares;
+      const primary     = group.find(c => c.dataset.date === oldest) || group[0];
+      const sharesDisp  = parseFloat(totalShares.toFixed(6));
+      primary.dataset.shares = sharesDisp;
+      primary.dataset.cost   = totalCost.toFixed(2);
+      primary.dataset.date   = oldest;
+      primary.querySelector('.qty').textContent       = sharesDisp;
+      primary.querySelector('.pps').textContent       = `$${fmtD(pps)}`;
+      primary.querySelector('.amount').textContent    = `$${fmtD(totalCost)}`;
+      primary.querySelector('.invested').textContent  = `$${fmtD(totalCost)}`;
+      primary.querySelector('.date-cell').textContent = fmtDate(oldest);
+      group.filter(c => c !== primary).forEach(c => c.remove());
+    });
+  }
+
+  function sortPositions() {
+    const list     = document.getElementById('holdings-list');
+    const posCards = Array.from(list.querySelectorAll('.holding-card[data-ticker]'));
+    posCards.sort((a, b) => new Date(b.dataset.date) - new Date(a.dataset.date));
+    const firstOther = list.querySelector('.holding-card:not([data-ticker])');
+    posCards.forEach((card, i) => {
+      card.querySelector('.num').textContent = i + 1;
+      list.insertBefore(card, firstOther);
+    });
+  }
+
+  syncRows();
+
+  // ── Price fetching ────────────────────────────────────────────────────────
+  function setStatus(state, text) {
+    pulse.className = 'pulse' + (state === 'error' ? ' error' : state === 'loading' ? ' loading' : '');
+    refreshLabel.textContent = text;
+    refreshBtn.disabled = (state === 'loading');
+  }
+
+  function flashRow(row, dir) {
+    row.classList.remove('flash-up', 'flash-down');
+    void row.offsetWidth;
+    row.classList.add(dir === 'up' ? 'flash-up' : 'flash-down');
+  }
+
+  function calcXIRR(cashFlows, dates) {
+    const MS_PER_DAY = 24 * 3600 * 1000;
+    const d0 = dates[0].getTime();
+    const t  = dates.map(d => (d.getTime() - d0) / (365 * MS_PER_DAY));
+    function npv(r)  { return cashFlows.reduce((s, cf, i) => s + cf / Math.pow(1 + r, t[i]), 0); }
+    function dnpv(r) { return cashFlows.reduce((s, cf, i) => t[i] === 0 ? s : s - t[i] * cf / Math.pow(1 + r, t[i] + 1), 0); }
+    for (const guess of [0.1, 0.5, 1.5, 2.0, -0.1]) {
+      let r = guess;
+      for (let i = 0; i < 300; i++) {
+        const f = npv(r), df = dnpv(r);
+        if (!isFinite(f) || Math.abs(df) < 1e-12) break;
+        const nr = r - f / df;
+        if (Math.abs(nr - r) < 1e-8) return nr;
+        r = nr;
+      }
+    }
+    return null;
+  }
+
+  async function fetchJSON(url, timeoutMs = 4000) {
+    // In HOME_MODE the app is served from localhost:7843, so /proxy is same-origin (works).
+    // In AWAY_MODE (file:// or remote) skip localhost proxy — it would just fail.
+    // Every attempt gets a per-attempt timeout (AbortController) so a hung/slow proxy can't
+    // stall the call indefinitely — mirrors the desktop fetchJSON. A 502/CORS failure returns
+    // or throws fast and moves on; this cap only bites when a proxy accepts the connection but
+    // never responds. Worst case is timeoutMs × attempts instead of unbounded.
+    const attempts = [
+      ...(HOME_MODE ? [(signal) => fetch(`/proxy?url=${encodeURIComponent(url)}`, { cache: 'no-store', signal })] : []),
+      (signal) => fetch(url, { cache: 'no-store', signal }),
+      (signal) => fetch(`https://corsproxy.io/?${url}`, { cache: 'no-store', signal }),
+      (signal) => fetch(`https://thingproxy.freeboard.io/fetch/${url}`, { cache: 'no-store', signal }),
+      (signal) => fetch(`https://api.codetabs.com/v1/proxy?quest=${url}`, { cache: 'no-store', signal }),
+    ];
+    for (let i = 0; i < attempts.length; i++) {
+      const ac    = new AbortController();
+      const timer = setTimeout(() => ac.abort(), timeoutMs);
+      try {
+        const resp = await attempts[i](ac.signal);
+        if (!resp.ok) continue;
+        const text = await resp.text();
+        let data = JSON.parse(text);
+        if (typeof data.contents === 'string') data = JSON.parse(data.contents);
+        return data;
+      } catch (e) { /* try next (abort/timeout lands here too) */ }
+      finally { clearTimeout(timer); }
+    }
+    return null;
+  }
+
+  function getSessionFromClock() {
+    const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const et    = new Date(etStr);
+    const day   = et.getDay();
+    if (day === 0 || day === 6) return 'CLOSED';
+    const mins  = et.getHours() * 60 + et.getMinutes();
+    if (mins >= 120  && mins < 570)  return 'PRE';
+    if (mins >= 570  && mins < 960)  return 'REGULAR';
+    if (mins >= 960  && mins < 1200) return 'POST';
+    return 'CLOSED';
+  }
+
+  function normaliseQuote(q) {
+    const state  = getSessionFromClock();
+    const isPre  = state === 'PRE';
+    const isPost = state === 'POST';
+    const prev = isPre
+      ? (q.regularMarketPrice ?? q.regularMarketPreviousClose)
+      : (q.regularMarketPreviousClose ?? q.chartPreviousClose ?? q.regularMarketPrice);
+    const prePrice  = q.preMarketPrice  ?? null;
+    const postPrice = q.postMarketPrice ?? null;
+    const preChg  = prePrice  != null && prev ? prePrice  - prev : null;
+    const postChg = postPrice != null && prev ? postPrice - prev : null;
+    return {
+      state, isPre, isPost,
+      regularMarketPrice:         q.regularMarketPrice,
+      regularMarketChange:        prev ? q.regularMarketPrice - prev : null,
+      regularMarketChangePercent: prev ? ((q.regularMarketPrice - prev) / prev) * 100 : null,
+      preMarketPrice:  prePrice,
+      preMarketChange: preChg,
+      preMarketChangePercent: preChg != null && prev ? (preChg / prev) * 100 : null,
+      postMarketPrice:  postPrice,
+      postMarketChange: postChg,
+      postMarketChangePercent: postChg != null && prev ? (postChg / prev) * 100 : null,
+    };
+  }
+
+  async function fetchExtendedHours(ticker) {
+    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d&includePrePost=true&_cb=${Date.now()}`;
+    const data = await fetchJSON(url);
+    const result = data?.chart?.result?.[0];
+    if (!result) return null;
+    const meta   = result.meta ?? {};
+    const tp     = meta.currentTradingPeriod ?? {};
+    const stamps = result.timestamp ?? [];
+    const closes = result.indicators?.quote?.[0]?.close ?? [];
+    const prev   = meta.chartPreviousClose ?? meta.previousClose;
+    const state  = getSessionFromClock();
+    const preStartMs  = (tp.pre?.start  ?? 0) * 1000;
+    const preEndMs    = (tp.pre?.end    ?? 0) * 1000;
+    const postStartMs = (tp.post?.start ?? 0) * 1000;
+    const postEndMs   = (tp.post?.end   ?? 0) * 1000;
+    function lastCloseInPeriod(fromMs, toMs) {
+      for (let i = stamps.length - 1; i >= 0; i--) {
+        const tsMs = stamps[i] * 1000;
+        if (tsMs >= fromMs && tsMs < toMs && closes[i] != null) return closes[i];
+      }
+      return null;
+    }
+    let pre = null, preChg = null, prePct = null;
+    let post = null, postChg = null, postPct = null;
+    if (state === 'PRE') {
+      const earlyStartMs = preEndMs > 0 ? preEndMs - 7.5 * 3600 * 1000 : preStartMs;
+      pre = lastCloseInPeriod(earlyStartMs, preEndMs);
+      if (pre != null && prev) { preChg = pre - prev; prePct = (preChg / prev) * 100; }
+
+      // No real pre-market tick yet (normal before ~4 AM ET) — the range=1d chart still
+      // starts at yesterday's open at this hour, so yesterday's post-market candles
+      // [preStartMs-12h, preStartMs-8h] ≈ [4 PM, 8 PM ET yesterday] are already in
+      // `stamps`/`closes`. Fall back to that frozen close instead of going blank.
+      if (pre == null && preStartMs > 0) {
+        const lastNightPost = lastCloseInPeriod(preStartMs - 12 * 3600000, preStartMs - 8 * 3600000);
+        if (lastNightPost != null && prev) {
+          post = lastNightPost;
+          postChg = post - prev; postPct = (postChg / prev) * 100;
+        }
+      }
+    } else if (state === 'POST' || state === 'CLOSED') {
+      // CLOSED (evening + weekend): the last post-market candle is frozen but still the
+      // most recent actual trade — keep exposing it instead of going quiet until 2 AM.
+      post = lastCloseInPeriod(postStartMs, postEndMs);
+      if (post != null && prev) { postChg = post - prev; postPct = (postChg / prev) * 100; }
+    }
+    return { preMarketPrice: pre, preMarketChange: preChg, preMarketChangePercent: prePct,
+             postMarketPrice: post, postMarketChange: postChg, postMarketChangePercent: postPct };
+  }
+
+  async function fetchTickerChart(ticker) {
+    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_cb=${Date.now()}`;
+    const data = await fetchJSON(url);
+    const meta = data?.chart?.result?.[0]?.meta;
+    if (!meta || !meta.regularMarketPrice) return null;
+    return normaliseQuote({
+      regularMarketPrice:         meta.regularMarketPrice,
+      regularMarketPreviousClose: meta.chartPreviousClose ?? meta.previousClose,
+      preMarketPrice: null, postMarketPrice: null,
+    });
+  }
+
+  async function fetchBenchmark() {
+    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=2y&_cb=${Date.now()}`;
+    const data = await fetchJSON(url);
+    const result = data?.chart?.result?.[0];
+    if (!result) return;
+    const timestamps = result.timestamp ?? [];
+    const closes     = result.indicators?.quote?.[0]?.close ?? [];
+    const currentSPY = result.meta?.regularMarketPrice;
+    if (!currentSPY) return;
+    const priceMap = {};
+    timestamps.forEach((ts, i) => { if (closes[i] != null) priceMap[new Date(ts * 1000).toISOString().split('T')[0]] = closes[i]; });
+    function spyPrice(dateStr) {
+      for (let i = 0; i <= 4; i++) {
+        const key = new Date(new Date(dateStr + 'T12:00:00').getTime() + i * 86400000).toISOString().split('T')[0];
+        if (priceMap[key]) return priceMap[key];
+      }
+      return null;
+    }
+    const xirrPairs = [];
+    let spyShares = 0;
+    rows.forEach(r => {
+      const cost  = parseFloat(r.dataset.originalCost ?? r.dataset.cost);
+      const price = spyPrice(r.dataset.date);
+      if (!price) return;
+      spyShares += cost / price;
+      xirrPairs.push({ amount: -cost, date: new Date(r.dataset.date) });
+    });
+    const salesData = JSON.parse(localStorage.getItem('alphapicks_sales') || '[]');
+    salesData.forEach(s => {
+      if (s.purchaseCost && s.purchaseDate) {
+        const buyPrice = spyPrice(s.purchaseDate), sellPrice = spyPrice(s.date);
+        if (!buyPrice || !sellPrice) return;
+        const sold = s.purchaseCost / buyPrice;
+        spyShares -= sold;
+        xirrPairs.push({ amount: -s.purchaseCost, date: new Date(s.purchaseDate) });
+        xirrPairs.push({ amount: sold * sellPrice, date: new Date(s.date) });
+      } else if (s.id && document.querySelector(`[data-id="${s.id}"]`)) {
+        const row2 = document.querySelector(`[data-id="${s.id}"]`);
+        const origCost = parseFloat(row2.dataset.originalCost ?? row2.dataset.cost);
+        const fraction = s.proceeds / (origCost + s.proceeds);
+        const sellPrice = spyPrice(s.date);
+        if (!sellPrice) return;
+        const sold = spyShares * fraction;
+        spyShares -= sold;
+        xirrPairs.push({ amount: sold * sellPrice, date: new Date(s.date) });
+      }
+    });
+    if (!xirrPairs.length || spyShares <= 0) return;
+    const spyValue = spyShares * currentSPY;
+    xirrPairs.push({ amount: spyValue, date: new Date() });
+    xirrPairs.sort((a, b) => a.date - b.date);
+    const rate = calcXIRR(xirrPairs.map(p => p.amount), xirrPairs.map(p => p.date));
+    if (rate !== null) {
+      const el = document.getElementById('stat-spy-return');
+      const sign = rate >= 0 ? '+' : '';
+      el.textContent = `S&P 500: ${sign}${(rate * 100).toFixed(2)}%`;
+      el.style.color = rate >= 0 ? '#3fb950' : '#ff7b72';
+    }
+    const totalCost = rows.reduce((s, r) => s + parseFloat(r.dataset.cost), 0);
+    if (totalCost > 0) {
+      const spyPct  = (spyValue - totalCost) / totalCost * 100;
+      const elPct   = document.getElementById('stat-spy-pct');
+      const signPct = spyPct >= 0 ? '+' : '';
+      elPct.textContent = `S&P 500: ${signPct}${spyPct.toFixed(2)}%`;
+      elPct.style.color = spyPct >= 0 ? '#3fb950' : '#ff7b72';
+    }
+  }
+
+  async function fetchFMPQuote(symbol) {
+    try {
+      const resp = await fetch(`https://financialmodelingprep.com/stable/quote?symbol=${symbol}&apikey=${FMP_KEY}`, { cache: 'no-store' });
+      if (resp.status === 429) return null; // rate-limited — skip silently, Yahoo fallback will cover
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const q = data?.[0];
+      return (q && q.price != null && q.previousClose != null) ? q : null;
+    } catch { return null; }
+  }
+
+  async function fetchFMPExtended(symbol) {
+    try {
+      const resp = await fetch(`https://financialmodelingprep.com/stable/aftermarket-trade?symbol=${symbol}&apikey=${FMP_KEY}`, { cache: 'no-store' });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const q = data?.[0];
+      return (q && q.price != null) ? q : null;
+    } catch { return null; }
+  }
+
+  function normaliseFMP(quote, extTrade, session) {
+    const isPre  = session === 'PRE';
+    const isPost = session === 'POST';
+    const price  = quote.price;
+    const prev   = quote.previousClose;
+    const extPrice = extTrade?.price ?? null;
+    const regChg    = quote.change           ?? (prev ? price - prev : null);
+    const regChgPct = quote.changesPercentage ?? (prev ? (price - prev) / prev * 100 : null);
+    const extChg    = extPrice != null ? extPrice - price : null;
+    const extChgPct = extPrice != null ? (extPrice - price) / price * 100 : null;
+    // extTrade is FMP's single "last extended trade" (one endpoint covers both pre and
+    // post). Expose it on both fields unconditionally — the caller decides which one is
+    // "current" via isPre / field-presence, so this also covers CLOSED (evening + weekend)
+    // and the pre-4AM gap before real pre-market ticks appear.
+    return {
+      state: session, isPre, isPost,
+      regularMarketPrice: price, regularMarketPreviousClose: prev,
+      regularMarketChange: regChg, regularMarketChangePercent: regChgPct,
+      preMarketPrice:  extPrice,
+      preMarketChange: extChg,
+      preMarketChangePercent: extChgPct,
+      postMarketPrice: extPrice,
+      postMarketChange: extChg,
+      postMarketChangePercent: extChgPct,
+    };
+  }
+
+  async function fetchSpyBox() {
+    const el        = document.getElementById('spy-pct-box');
+    const chipLabel = document.getElementById('spy-chip-label');
+    const session   = getSessionFromClock();
+
+    // ── During REGULAR session: use SPY live price ────────────────────────
+    if (session === 'REGULAR') {
+      if (chipLabel) chipLabel.textContent = 'S&P 500';
+      const fmpQ = await fetchFMPQuote('SPY');
+      if (fmpQ?.price && fmpQ?.previousClose) {
+        const pct = (fmpQ.price - fmpQ.previousClose) / fmpQ.previousClose * 100;
+        el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
+        return;
+      }
+      // Yahoo fallback for regular — use fetchJSON (proxy chain handles CORS)
+      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d&formatted=false&_cb=${Date.now()}`;
+      const data = await fetchJSON(yUrl);
+      const res  = data?.chart?.result?.[0];
+      if (!res) return;
+      const price = res.meta?.regularMarketPrice;
+      // Use regularMarketPreviousClose first; fall back to last completed daily candle
+      let prev = res.meta?.regularMarketPreviousClose ?? null;
+      if (!prev) {
+        const ts = res.timestamp ?? [], cs = res.indicators?.quote?.[0]?.close ?? [];
+        const cutoff = Date.now() - 4 * 3600 * 1000;
+        for (let i = ts.length - 1; i >= 0; i--) { if (ts[i] * 1000 < cutoff && cs[i] != null) { prev = cs[i]; break; } }
+      }
+      if (!price || !prev) return;
+      const pct = (price - prev) / prev * 100;
+      el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+      el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
+      return;
+    }
+
+    // ── PRE / POST / CLOSED: use ES=F futures (trade ~24/7) ──────────────
+    // chartPreviousClose on a 5d-1m chart = price 5 days ago — not the CME settlement.
+    // Instead scan 1m candles for the actual 4:10–4:25 PM ET settlement candle.
+    if (chipLabel) chipLabel.textContent = 'S&P FUT';
+    const esUrl = `https://query1.finance.yahoo.com/v8/finance/chart/ES%3DF?interval=1m&range=5d&formatted=false&_cb=${Date.now()}`;
+    let esData = null;
+    for (const proxyUrl of [
+      `http://localhost:7843/proxy?url=${encodeURIComponent(esUrl)}`,
+      `/proxy?url=${encodeURIComponent(esUrl)}`,
+    ]) {
+      try {
+        const r = await fetch(proxyUrl, { cache: 'no-store' });
+        if (r.ok) { esData = await r.json(); break; }
+      } catch {}
+    }
+    if (!esData) esData = await fetchJSON(esUrl);
+    if (!esData) { el.textContent = '—'; el.style.color = '#8b949e'; return; }
+
+    const esResult  = esData.chart?.result?.[0];
+    if (!esResult)  { el.textContent = '—'; el.style.color = '#8b949e'; return; }
+
+    const esTimes   = esResult.timestamp ?? [];
+    const esCloses  = esResult.indicators?.quote?.[0]?.close ?? [];
+
+    // Live price: scan backwards for last non-null close
+    let futPrice = null;
+    for (let i = esCloses.length - 1; i >= 0; i--) {
+      if (esCloses[i] != null) { futPrice = esCloses[i]; break; }
+    }
+    if (!futPrice) futPrice = esResult.meta?.regularMarketPrice;
+    if (!futPrice) { el.textContent = '—'; el.style.color = '#8b949e'; return; }
+
+    // Previous CME settlement reference:
+    // 1) Use meta.regularMarketPreviousClose if available (most reliable)
+    // 2) Scan backwards for candle in 3:55–4:30 PM ET (wider window catches all variants)
+    let prevSettle = esResult.meta?.regularMarketPreviousClose ?? null;
+    if (!prevSettle) {
+      const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+      for (let i = esTimes.length - 1; i >= 0; i--) {
+        const tsMs = esTimes[i] * 1000;
+        if (tsMs > thirtyMinAgo) continue;
+        if (esCloses[i] == null) continue;
+        const etStr = new Date(tsMs).toLocaleString('en-US', { timeZone: 'America/New_York' });
+        const tp = etStr.match(/(\d+):(\d+):\d+\s+(AM|PM)/);
+        if (!tp) continue;
+        let h = parseInt(tp[1]), m = parseInt(tp[2]);
+        if (tp[3] === 'PM' && h !== 12) h += 12;
+        if (tp[3] === 'AM' && h === 12) h = 0;
+        if ((h === 15 && m >= 55) || (h === 16 && m <= 30)) { prevSettle = esCloses[i]; break; }
+      }
+    }
+    if (!prevSettle) { el.textContent = '—'; el.style.color = '#8b949e'; return; }
+
+    const pct   = (futPrice - prevSettle) / prevSettle * 100;
+    const label = session === 'PRE' ? ' PRE' : session === 'POST' ? ' AH' : ' FUT';
+    el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%${label}`;
+    el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
+  }
+
+  // ── Intraday G/L Strip ────────────────────────────────────────────────────
+  const _INTRADAY_LS = 'alphapicks_intraday_snaps';
+  let _intradayChart = null;
+  let _intradaySnaps = (() => { try { return JSON.parse(localStorage.getItem(_INTRADAY_LS) || '{}'); } catch { return {}; } })();
+
+  function _todayKeyET() {
+    const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    return `${et.getFullYear()}-${String(et.getMonth()+1).padStart(2,'0')}-${String(et.getDate()).padStart(2,'0')}`;
+  }
+
+  function _saveIntradaySnaps() {
+    try {
+      const todayKey = _todayKeyET();
+      const out = {};
+      Object.keys(_intradaySnaps).forEach(k => { if (k.startsWith(todayKey + ':')) out[k] = _intradaySnaps[k]; });
+      localStorage.setItem(_INTRADAY_LS, JSON.stringify(out));
+    } catch (_) {}
+  }
+
+  function pushIntradaySnap(gl) {
+    if (gl == null || !isFinite(gl)) return;
+    const key = _todayKeyET() + ':alphapicks';
+    if (!_intradaySnaps[key]) _intradaySnaps[key] = [];
+    const arr = _intradaySnaps[key];
+    if (arr.length && Date.now() - arr[arr.length - 1].t < 5000) {
+      arr[arr.length - 1] = { t: Date.now(), gl };
+    } else {
+      arr.push({ t: Date.now(), gl });
+    }
+    _saveIntradaySnaps();
+    renderIntradayChart();
+  }
+
+  async function _mergeIntradayFromStore() {
+    try {
+      const res = await fetch('/store', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const raw = data[_INTRADAY_LS];
+      if (!raw) return;
+      const stored = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const todayKey = _todayKeyET();
+      let changed = false;
+      for (const [k, pts] of Object.entries(stored)) {
+        if (!k.startsWith(todayKey + ':alphapicks')) continue;
+        if (!_intradaySnaps[k]) { _intradaySnaps[k] = pts; changed = true; continue; }
+        const localTs = new Set(_intradaySnaps[k].map(p => p.t));
+        const newPts = pts.filter(p => !localTs.has(p.t));
+        if (newPts.length) {
+          _intradaySnaps[k] = [..._intradaySnaps[k], ...newPts].sort((a, b) => a.t - b.t);
+          changed = true;
+        }
+      }
+      if (changed) renderIntradayChart();
+    } catch (_) {}
+  }
+  setInterval(_mergeIntradayFromStore, 120000);
+
+  function renderIntradayChart() {
+    if (typeof Chart === 'undefined') return;
+    const canvas = document.getElementById('intraday-canvas');
+    if (!canvas) return;
+
+    const nowUTC   = new Date();
+    const nowETStr = nowUTC.toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const nowET    = new Date(nowETStr);
+    const etOffsetMs = nowUTC.getTime() - nowET.getTime();
+    const todayKey = _todayKeyET();
+    const [yr, mo, dy] = todayKey.split('-').map(Number);
+    const etHourMs = (h, m = 0) => new Date(yr, mo - 1, dy, h, m, 0).getTime() + etOffsetMs;
+
+    const xMin   = etHourMs(2);
+    const xMax   = etHourMs(16);
+    const xRight = Math.min(Math.max(xMax, nowUTC.getTime()), etHourMs(20));
+
+    const snaps = _intradaySnaps[todayKey + ':alphapicks'] || [];
+
+    const valEl = document.getElementById('intraday-val');
+    const curGL = snaps.length ? snaps[snaps.length - 1].gl : null;
+    if (curGL != null) {
+      valEl.textContent = `${curGL >= 0 ? '+' : '-'}$${Math.round(Math.abs(curGL)).toLocaleString('en-US')}`;
+      valEl.style.color = curGL >= 0 ? '#3fb950' : '#ff7b72';
+    } else {
+      valEl.textContent = '—'; valEl.style.color = '#484f58';
+    }
+
+    const GAP_MS = 12 * 60 * 1000;
+    const pts = [];
+    for (let i = 0; i < snaps.length; i++) {
+      if (i > 0 && snaps[i].t - snaps[i - 1].t > GAP_MS) pts.push({ x: (snaps[i-1].t + snaps[i].t) / 2, y: null });
+      pts.push({ x: snaps[i].t, y: snaps[i].gl });
+    }
+
+    const _segLine = ctx => (ctx.p1?.parsed?.y ?? 0) < 0 ? 'rgb(255,123,114)' : 'rgb(63,185,80)';
+    const _segFill = ctx => (ctx.p1?.parsed?.y ?? 0) < 0 ? 'rgba(255,123,114,0.15)' : 'rgba(63,185,80,0.15)';
+
+    if (_intradayChart) {
+      _intradayChart.data.datasets[0].data = pts;
+      _intradayChart.options.scales.x.max  = xRight;
+      _intradayChart.update('none');
+      return;
+    }
+
+    const ctx = canvas.getContext('2d');
+    _intradayChart = new Chart(ctx, {
+      type: 'line',
+      data: { datasets: [{
+        label: 'Day G/L', data: pts,
+        borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,0.15)',
+        borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 3,
+        tension: 0.35, fill: 'origin', spanGaps: false,
+        segment: { borderColor: _segLine, backgroundColor: _segFill },
+      }]},
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        layout: { padding: { left: 48, right: 64, top: 6, bottom: 4 } },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+            titleColor: '#8b949e', bodyColor: '#e6edf3', padding: 7,
+            callbacks: {
+              title: items => new Date(items[0].parsed.x).toLocaleTimeString('en-GB',
+                { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Jerusalem' }),
+              label: item => { const v = item.parsed.y; return ` ${v >= 0 ? '+' : '-'}$${Math.round(Math.abs(v)).toLocaleString('en-US')}`; }
+            }
+          }
+        },
+        scales: {
+          x: {
+            type: 'linear', min: xMin, max: xRight,
+            grid: { color: '#161b22' }, border: { display: false },
+            ticks: {
+              color: '#8b949e', font: { size: 9 }, stepSize: 3_600_000,
+              callback: ms => { const il = new Date(new Date(ms).toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' })); return String(il.getHours()); }
+            }
+          },
+          y: {
+            grid: { color: '#161b22' }, border: { display: false },
+            ticks: {
+              color: '#8b949e', font: { size: 9 }, maxTicksLimit: 4,
+              callback: v => { const s = v >= 0 ? '+' : '-'; const a = Math.abs(v); return `${s}$${a >= 1000 ? (a/1000).toFixed(0)+'k' : Math.round(a)}`; }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async function fetchUsdIls() {
+    const el  = document.getElementById('usdils-box');
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/USDILS%3DX?interval=1m&range=5d&formatted=false&_cb=${Date.now()}`;
+    const data = await fetchJSON(url);
+    const result = data?.chart?.result?.[0];
+    let rate = null, prev = null;
+    if (result) {
+      const closes = result.indicators?.quote?.[0]?.close ?? [];
+      for (let i = closes.length - 1; i >= 0; i--) {
+        if (closes[i] != null && closes[i] > 1) { rate = closes[i]; break; }
+      }
+      if (!rate) rate = result.meta?.regularMarketPrice ?? null;
+      prev = result.meta?.chartPreviousClose ?? null;
+    }
+    if (rate) {
+      // Cache the good rate
+      localStorage.setItem('usdils_cache', JSON.stringify({ rate, prev, ts: Date.now() }));
+    } else {
+      // Fall back to cached rate
+      try {
+        const cached = JSON.parse(localStorage.getItem('usdils_cache') || 'null');
+        if (cached?.rate) { rate = cached.rate; prev = cached.prev; }
+      } catch {}
+    }
+    if (!rate) { el.textContent = '—'; el.style.color = '#8b949e'; return; }
+    const pct    = prev ? (rate - prev) / prev * 100 : null;
+    const pctStr = pct != null ? ` (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)` : '';
+    el.textContent = `${rate.toFixed(2)}${pctStr}`;
+    el.style.color  = pct == null ? '#8b949e' : pct >= 0 ? '#3fb950' : '#ff7b72';
+  }
+
+  // ── Live price refresh for Brokerage + IRA cards ─────────────────────────
+  // Fetches current prices from FMP for all non-HGI positions and re-renders
+  // the cards with live data. Runs on every refresh so prices are always current
+  // even when the desktop hasn't synced recently (e.g. AWAY mode, desktop off).
+  async function refreshBrokIraPrices() {
+    const datasets = [
+      { data: _lastBrokData, listId: 'brokerage-list', barId: 'brok-total-bar' },
+      { data: _lastIraData,  listId: 'ira-list',       barId: 'ira-total-bar'  },
+    ];
+
+    // Collect unique live-price tickers across both tabs (skip HGI/private)
+    const allPos = datasets.flatMap(d => d.data?.positions || []);
+    const tickers = [...new Set(allPos.filter(p => !p.hgi && p.symbol).map(p => p.symbol))];
+    if (!tickers.length) return;
+
+    // Parallel FMP fetch for all tickers
+    const quotes  = await Promise.all(tickers.map(fetchFMPQuote));
+    const qMap    = {};
+    tickers.forEach((t, i) => { if (quotes[i]) qMap[t] = quotes[i]; });
+    if (!Object.keys(qMap).length) return;
+
+    const session = getSessionFromClock();
+
+    const patchPos = positions => positions.map(pos => {
+      const q = qMap[pos.symbol];
+      if (!q) return pos;
+      const price    = q.price;
+      const mktVal   = price * (pos.shares || 0);
+      // Day % — use regularMarketChangePercent from FMP when available, else derive
+      const dayPct   = q.changesPercentage != null ? q.changesPercentage
+                     : q.previousClose              ? (price - q.previousClose) / q.previousClose * 100
+                     : null;
+      return { ...pos, currentPrice: price, mktVal, dayPct };
+    });
+
+    datasets.forEach(({ data, listId, barId }) => {
+      if (!data?.positions?.length) return;
+      const patched = patchPos(data.positions);
+      renderAccountCards(listId, barId, patched, data.irrRate, data.spyIrrRate, data.spySimRet);
+    });
+  }
+
+  async function fetchPrices() {
+    syncRows();
+    if (!tickers.length) {
+      setStatus('ok', 'No positions — open desktop dashboard at home first');
+      return;
+    }
+    setStatus('loading', 'Refreshing…');
+    const session = getSessionFromClock();
+    // CLOSED (evening + weekend) still needs the frozen last post-market trade fetched —
+    // only skip extended-hours calls during REGULAR, when they're meaningless.
+    const isExt   = session !== 'REGULAR';
+    const [fmpQuotes, fmpExtended] = await Promise.all([
+      Promise.all(tickers.map(fetchFMPQuote)),
+      isExt ? Promise.all(tickers.map(fetchFMPExtended)) : Promise.resolve(tickers.map(() => null))
+    ]);
+    const quoteMap = {};
+    tickers.forEach((t, i) => { if (fmpQuotes[i]) quoteMap[t] = normaliseFMP(fmpQuotes[i], fmpExtended[i], session); });
+
+    const missing = tickers.filter(t => !quoteMap[t]);
+    if (missing.length) {
+      // Try Yahoo v7 direct first (has CORS headers), then via codetabs proxy
+      const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${missing.join(',')}&formatted=false&_cb=${Date.now()}`;
+      let quoteData = null;
+      try {
+        const r = await fetch(yahooUrl, { cache: 'no-store' });
+        if (r.ok) quoteData = await r.json();
+      } catch {}
+      if (!quoteData) {
+        quoteData = await fetchJSON(yahooUrl);
+      }
+      (quoteData?.quoteResponse?.result ?? []).forEach(q => { quoteMap[q.symbol] = normaliseQuote(q); });
+      const stillMissing = missing.filter(t => !quoteMap[t]);
+      if (stillMissing.length) {
+        const fallbacks = await Promise.all(stillMissing.map(fetchTickerChart));
+        stillMissing.forEach((t, i) => { if (fallbacks[i]) quoteMap[t] = fallbacks[i]; });
+      }
+    }
+
+    if (isExt) {
+      const needsExtFallback = tickers.filter(t => {
+        const q = quoteMap[t]; if (!q) return false;
+        return session === 'PRE' ? q.preMarketPrice == null : q.postMarketPrice == null;
+      });
+      if (needsExtFallback.length) {
+        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        needsExtFallback.forEach((t, i) => {
+          const ext = extResults[i];
+          if (ext && quoteMap[t]) {
+            quoteMap[t].preMarketPrice          = ext.preMarketPrice;
+            quoteMap[t].preMarketChange         = ext.preMarketChange;
+            quoteMap[t].preMarketChangePercent  = ext.preMarketChangePercent;
+            quoteMap[t].postMarketPrice         = ext.postMarketPrice;
+            quoteMap[t].postMarketChange        = ext.postMarketChange;
+            quoteMap[t].postMarketChangePercent = ext.postMarketChangePercent;
+          }
+        });
+      }
+    }
+
+    if (Object.keys(quoteMap).length === 0) {
+      // FMP + Yahoo both failed (likely rate-limited). If cards already have
+      // pre-filled prices from the Gist sync, keep showing those silently.
+      const hasPrefilled = rows.some(r => r.dataset.currentPrice && parseFloat(r.dataset.currentPrice) > 0);
+      if (hasPrefilled) {
+        const syncAge = Math.round((Date.now() - (parseInt(document.body.dataset.syncTs || '0') || Date.now())) / 60000);
+        setStatus('ok', syncAge > 0 ? `~${syncAge}m ago` : 'Synced');
+      } else {
+        setStatus('error', 'Price fetch failed — open desktop to sync fresh prices');
+      }
+      return;
+    }
+
+    let totalValue = 0, totalDayChange = 0, hasDayChange = false, updatedCount = 0;
+
+    // Pre-seed totalValue (and dayChange via synced dayPct) for any ticker FMP didn't return,
+    // so the portfolio total and daily change are never partial.
+    rows.forEach(row => {
+      if (quoteMap[row.dataset.ticker]) return; // will be counted in live loop
+      const fb = parseFloat(row.dataset.currentPrice);
+      if (!(fb > 0)) return;
+      const fbShares = parseFloat(row.dataset.shares);
+      const fbVal    = fb * fbShares;
+      totalValue += fbVal;
+      const fbSyncPct = (row.dataset.dayPct !== '' && row.dataset.dayPct != null)
+          ? parseFloat(row.dataset.dayPct) : null;
+      if (fbSyncPct != null && isFinite(fbSyncPct)) {
+        totalDayChange += fbVal * fbSyncPct / (100 + fbSyncPct);
+        hasDayChange = true;
+      }
+    });
+
+    rows.forEach(row => {
+      const ticker = row.dataset.ticker;
+      const shares = parseFloat(row.dataset.shares);
+      const cost   = parseFloat(row.dataset.cost);
+      const q      = quoteMap[ticker];
+      if (!q) return;
+
+      // postMarketPrice is checked on field presence alone (not gated to isPost) so the
+      // frozen last trade keeps showing through CLOSED (evening/weekend) and the early-PRE
+      // gap before real pre-market ticks appear — always the most recent actual quote.
+      const price    = q.isPre && q.preMarketPrice  != null ? q.preMarketPrice
+                     : q.postMarketPrice != null ? q.postMarketPrice
+                     : q.regularMarketPrice;
+      const priceTag = q.isPre && q.preMarketPrice  != null ? 'PRE'
+                     : q.postMarketPrice != null ? 'AH' : null;
+      if (!price) return;
+
+      const prevPrice = parseFloat(row.querySelector('.cur-price').innerText.replace(/[^0-9.]/g, '')) || 0;
+      const value  = shares * price;
+      const gain   = value - cost;
+      const pps      = cost / shares;
+      const priceColor = price > pps ? '#3fb950' : price < pps ? '#ff7b72' : '#8b949e';
+      const pct    = (gain / cost) * 100;
+      totalValue  += value; updatedCount++;
+
+      const isGain = gain >= 0, sign = isGain ? '+' : '-';
+      const cls = isGain ? 'gain' : 'loss';
+
+      const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
+      const ref        = q.regularMarketPrice;
+      const dayChange  = isExtHours && ref ? price - ref : q.regularMarketChange;
+      const dayPct     = isExtHours && ref ? (price - ref) / ref * 100 : q.regularMarketChangePercent;
+
+      // Day change % (top-right, large)
+      const dayChgEl = row.querySelector('.day-chg');
+      if (dayChgEl) {
+        const pctStr = dayPct != null ? `${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%` : '—';
+        dayChgEl.textContent = pctStr;
+        dayChgEl.style.color = dayPct != null ? (dayPct >= 0 ? '#3fb950' : '#ff7b72') : '#8b949e';
+      }
+      // Share price (below %, smaller) + PRE/AH label
+      const priceEl = row.querySelector('.cur-price');
+      priceEl.innerHTML = `$${fmtPrice(price)}${priceTag ? ` <span class="market-label">${priceTag}</span>` : ''}`;
+      priceEl.style.color = priceColor;
+      // Position value (bot-left)
+      const valCell = row.querySelector('.cur-value');
+      valCell.textContent = `$${fmtD(value)}`;
+      valCell.className   = `cur-value ${cls}`;
+      // Position G/L (bot-right)
+      row.querySelector('.gain-loss').innerHTML =
+        `<span class="${cls}">${sign}$${fmtD(Math.abs(gain))} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)</span>`;
+
+      // Per-position annualised return (CAGR)
+      if (row.dataset.date && cost > 0 && value > 0) {
+        const buyDate = new Date(row.dataset.date);
+        const years   = (Date.now() - buyDate.getTime()) / (365.25 * 24 * 3600 * 1000);
+        const irrEl   = row.querySelector('.irr-val');
+        if (irrEl && years > 1 / 365) {  // at least 1 day old
+          const irrRate = Math.pow(value / cost, 1 / years) - 1;
+          const irrPct  = irrRate * 100;
+          irrEl.textContent = irrPct > 1000 ? 'HIGH' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
+          irrEl.style.color = irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72';
+        }
+      }
+
+      // Server-does-calculations: use desktop-synced dayPct (set by appendPositionCard from
+      // syncToCloud push) for the portfolio total. Value · syncedPct / (100 + syncedPct) is
+      // exact (recovers the same dollar change the desktop computed). Fall back to local only
+      // when no synced value exists (first load before any push).
+      const _syncPctStr  = row.dataset.dayPct;
+      const _syncPct     = (_syncPctStr !== '' && _syncPctStr != null) ? parseFloat(_syncPctStr) : null;
+      const posDayChange = _syncPct != null
+          ? value * _syncPct / (100 + _syncPct)
+          : (dayChange != null ? dayChange * shares : null);
+      if (posDayChange != null) { totalDayChange += posDayChange; hasDayChange = true; }
+      if (prevPrice && price !== prevPrice) flashRow(row, price > prevPrice ? 'up' : 'down');
+    });
+
+    if (updatedCount > 0) {
+      const TOTAL_COST = rows.reduce((s, r) => s + parseFloat(r.dataset.cost), 0);
+      const totalChange = totalValue - TOTAL_COST;
+      statTotal.textContent = `$${fmtD(totalValue)}`;
+
+      if (hasDayChange) {
+        const dcUp  = totalDayChange >= 0;
+        const prevV = totalValue - totalDayChange;
+        const dcPct = prevV !== 0 ? (totalDayChange / prevV) * 100 : 0;
+        statDailyChange.textContent = `${dcUp ? '+' : '-'}$${fmtD(Math.abs(totalDayChange))}`;
+        statDailyChange.className   = `stat-value ${dcUp ? 'green' : 'red'}`;
+        const elPct = document.getElementById('stat-daily-change-pct');
+        elPct.textContent = `${dcUp ? '+' : ''}${dcPct.toFixed(2)}%`;
+        elPct.style.color = dcUp ? '#3fb950' : '#ff7b72';
+      }
+      statGain.textContent = `${totalChange >= 0 ? '+' : ''}$${fmtD(Math.abs(totalChange))}`;
+      statGain.className   = `stat-value ${totalChange >= 0 ? 'green' : 'red'}`;
+      const pctChange = (totalChange / TOTAL_COST) * 100;
+      statPctChange.textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
+      statPctChange.className   = `stat-value ${pctChange >= 0 ? 'green' : 'red'}`;
+      const elGainPct = document.getElementById('stat-total-gain-pct');
+      elGainPct.textContent = `${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%`;
+      elGainPct.style.color = pctChange >= 0 ? '#3fb950' : '#ff7b72';
+
+      // Portfolio weights
+      if (totalValue > 0) {
+        rows.forEach(row => {
+          const weightCell = row.querySelector('.weight');
+          if (!weightCell) return;
+          const val = parseFloat(row.querySelector('.cur-value')?.textContent.replace(/[$,]/g, '') || '');
+          if (!isNaN(val)) weightCell.textContent = `${(val / totalValue * 100).toFixed(1)}%`;
+        });
+      }
+
+      // XIRR
+      const xirrPairs = rows.map(r => ({ amount: -(parseFloat(r.dataset.originalCost ?? r.dataset.cost)), date: new Date(r.dataset.date) }));
+      const salesData = JSON.parse(localStorage.getItem('alphapicks_sales') || '[]');
+      salesData.forEach(s => {
+        if (s.purchaseCost) {
+          xirrPairs.push({ amount: -s.purchaseCost, date: new Date(s.purchaseDate) });
+          xirrPairs.push({ amount: s.proceeds, date: new Date(s.date) });
+        } else if (s.id && document.querySelector(`[data-id="${s.id}"]`)) {
+          xirrPairs.push({ amount: s.proceeds, date: new Date(s.date) });
+        }
+      });
+      xirrPairs.push({ amount: totalValue, date: new Date() });
+      xirrPairs.sort((a, b) => a.date - b.date);
+      const localRate = calcXIRR(xirrPairs.map(p => p.amount), xirrPairs.map(p => p.date));
+      // Prefer desktop-computed XIRR (full transaction history) when available; fall back to local
+      const finalRate = _syncedAlphaPicksIrrRate ?? localRate;
+      if (finalRate !== null) {
+        const sign = finalRate >= 0 ? '+' : '';
+        const statAR = document.getElementById('stat-annual-return');
+        statAR.textContent = `${sign}${(finalRate * 100).toFixed(2)}%`;
+        statAR.className   = `stat-value ${finalRate >= 0 ? 'green' : 'red'}`;
+      }
+
+      // Apply S&P benchmarks from desktop sync — exact same values as desktop renderTabStats
+      // Only fall back to fetchBenchmark() when desktop hasn't provided synced values
+      const fmtSpyVal = v => `S&P 500: ${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`;
+      if (_syncedAlphaPicksSpyIrrRate != null) {
+        const el = document.getElementById('stat-spy-return');
+        el.textContent = fmtSpyVal(_syncedAlphaPicksSpyIrrRate);
+        el.style.color = _syncedAlphaPicksSpyIrrRate >= 0 ? '#3fb950' : '#ff7b72';
+      }
+      if (_syncedAlphaPicksSpySimRet != null) {
+        const el = document.getElementById('stat-spy-pct');
+        el.textContent = fmtSpyVal(_syncedAlphaPicksSpySimRet);
+        el.style.color = _syncedAlphaPicksSpySimRet >= 0 ? '#3fb950' : '#ff7b72';
+      }
+    }
+
+    if (hasDayChange) pushIntradaySnap(totalDayChange);
+
+    setStatus('ok', `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`);
+    savePriceCache();
+    // Only call fetchBenchmark() as fallback when desktop hasn't synced SPY data
+    if (_syncedAlphaPicksSpyIrrRate == null || _syncedAlphaPicksSpySimRet == null) fetchBenchmark();
+    fetchUsdIls();
+    refreshBrokIraPrices();  // live prices for Brokerage + IRA regardless of sync age
+    checkBuyCallReminder();
+    checkDailyLog();
+    checkDivAlerts();
+
+    // Schedule next auto-refresh: sync from cloud then re-fetch prices
+    const _session  = getSessionFromClock();
+    const _interval = _session === 'REGULAR' ? 10 * 60 * 1000   // 10 min during market hours
+                    : _session === 'CLOSED'  ? 60 * 60 * 1000   // 60 min when closed
+                    :                         20 * 60 * 1000;   // 20 min pre/post
+    if (window._autoRefreshTimer) clearTimeout(window._autoRefreshTimer);
+    window._autoRefreshTimer = setTimeout(syncAndRefresh, _interval);
+  }
+
+  // ── Sync + refresh wrapper ────────────────────────────────────────────────
+  // Called by refresh button, pull-to-refresh, and auto-schedule.
+  // Always re-syncs from cloud first so Brokerage/Retirement cards and IRR
+  // rates reflect the latest desktop snapshot before fetching live prices.
+  async function syncAndRefresh() {
+    if (window._autoRefreshTimer) { clearTimeout(window._autoRefreshTimer); window._autoRefreshTimer = null; }
+    await syncFromCloud();
+    fetchPrices();
+  }
+
+  // ── Price cache ───────────────────────────────────────────────────────────
+  function savePriceCache() {
+    try {
+      const cardData = rows.map(r => ({
+        ticker:      r.dataset.ticker,
+        priceHTML:   r.querySelector('.cur-price')?.innerHTML   ?? '',
+        priceColor:  r.querySelector('.cur-price')?.style.color ?? '',
+        dayChgText:  r.querySelector('.day-chg')?.textContent  ?? '',
+        dayChgColor: r.querySelector('.day-chg')?.style.color  ?? '',
+        valText:     r.querySelector('.cur-value')?.textContent ?? '',
+        valClass:    r.querySelector('.cur-value')?.className   ?? '',
+        glHTML:      r.querySelector('.gain-loss')?.innerHTML   ?? '',
+        irrText:     r.querySelector('.irr-val')?.textContent   ?? '',
+        irrColor:    r.querySelector('.irr-val')?.style.color   ?? '',
+        weight:      r.querySelector('.weight')?.textContent    ?? '',
+      }));
+      const statIds = ['stat-total-value','stat-total-gain','stat-total-gain-pct',
+        'stat-daily-change','stat-daily-change-pct','stat-pct-change','stat-total-invested',
+        'stat-annual-return','stat-spy-return','stat-spy-pct'];
+      const stats = {};
+      statIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) stats[id] = { text: el.textContent, cls: el.className, color: el.style.color };
+      });
+      // M1: persist card HTML so restoreFromPriceCache can render cards before syncFromCloud
+      const listEl = document.getElementById('holdings-list');
+      const listHTML = (listEl && listEl.children.length > 0 && !listEl.innerHTML.includes('sync-placeholder'))
+        ? listEl.innerHTML : null;
+      localStorage.setItem('mobile_price_cache', JSON.stringify({ ts: Date.now(), cardData, stats, listHTML }));
+    } catch (e) { console.warn('[PriceCache] save failed:', e); }
+  }
+
+  function restoreFromPriceCache() {
+    try {
+      const raw = localStorage.getItem('mobile_price_cache');
+      if (!raw) return false;
+      const cache = JSON.parse(raw);
+      const age     = Date.now() - (cache.ts || 0);
+      const session = getSessionFromClock();
+      const maxAge  = session === 'REGULAR' ? 10 * 60 * 1000
+                    : session === 'CLOSED'  ? 60 * 60 * 1000
+                    :                         20 * 60 * 1000;
+      if (age > maxAge) return false;
+
+      // M1: restore card HTML first so syncRows() can populate tickers immediately
+      if (cache.listHTML) {
+        const listEl = document.getElementById('holdings-list');
+        if (listEl) { listEl.innerHTML = cache.listHTML; syncRows(); }
+      }
+
+      (cache.cardData || []).forEach(c => {
+        const card = document.querySelector(`#holdings-list .holding-card[data-ticker="${c.ticker}"]`);
+        if (!card) return;
+        const pc = card.querySelector('.cur-price');
+        const dc = card.querySelector('.day-chg');
+        const vc = card.querySelector('.cur-value');
+        const gc = card.querySelector('.gain-loss');
+        const ic = card.querySelector('.irr-val');
+        const wc = card.querySelector('.weight');
+        if (pc && c.priceHTML)   { pc.innerHTML = c.priceHTML; if (c.priceColor) pc.style.color = c.priceColor; }
+        if (dc && c.dayChgText)  { dc.textContent = c.dayChgText; if (c.dayChgColor) dc.style.color = c.dayChgColor; }
+        if (vc && c.valText)     { vc.textContent = c.valText; vc.className = c.valClass; }
+        if (gc && c.glHTML)      gc.innerHTML   = c.glHTML;
+        if (ic && c.irrText)     { ic.textContent = c.irrText; if (c.irrColor) ic.style.color = c.irrColor; }
+        if (wc && c.weight)      wc.textContent  = c.weight;
+      });
+      Object.entries(cache.stats || {}).forEach(([id, s]) => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = s.text; el.className = s.cls; if (s.color) el.style.color = s.color; }
+      });
+
+      const mins = Math.max(0, Math.round(age / 60000));
+      setStatus('ok', `Prices ${mins < 1 ? '<1' : mins}m old`);
+      return true;
+    } catch (e) {
+      console.warn('[PriceCache] restore failed:', e);
+      return false;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // M1: restore cached cards + stats immediately — no need to wait for home detection.
+  // restoreFromPriceCache now also restores listHTML so cards appear before any network call.
+  restoreFromPriceCache();
+
+  // M2: detectHomeMode timeout reduced to 400 ms (see function above).
+  // M3: if cache gave us positions, start live price fetch immediately in parallel with cloud sync.
+  detectHomeMode().then(() => {
+    updateModeBadge(HOME_MODE ? 'local' : 'away');
+    const hadCachedPositions = tickers && tickers.length > 0;
+    if (hadCachedPositions) fetchPrices(); // M3: kick off FMP calls now for fast visual feedback
+    syncFromCloud().then(() => {
+      fetchPrices(); // always re-run after sync so fresh synced dayPct values feed the portfolio total
+      _mergeIntradayFromStore();
+      scheduleDailyLog();
+      setInterval(checkDailyLog, 60 * 1000);
+    });
+  });
+  // ── Pull-to-refresh ───────────────────────────────────────────────────────
+  (function() {
+    const ptrEl = document.getElementById('ptr-indicator');
+    let startY = 0, armed = false;
+    document.addEventListener('touchstart', e => {
+      startY = e.touches[0].clientY;
+      armed  = window.scrollY === 0;
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (!armed) return;
+      const dy = e.touches[0].clientY - startY;
+      if (ptrEl) {
+        if (dy > 45 && window.scrollY === 0) {
+          ptrEl.classList.add('visible');
+          ptrEl.textContent = dy > 80 ? '↑ Release to refresh' : '↓ Pull to refresh';
+        } else {
+          ptrEl.classList.remove('visible');
+        }
+      }
+    }, { passive: true });
+    document.addEventListener('touchend', e => {
+      const dy = e.changedTouches[0].clientY - startY;
+      if (ptrEl) ptrEl.classList.remove('visible');
+      if (armed && dy > 80 && window.scrollY === 0) syncAndRefresh();
+      armed = false;
+    }, { passive: true });
+  })();
+
+  // ── Swipe left/right to switch tabs ──────────────────────────────────────
+  (function() {
+    // Visual tab order (left → right): Brokerage | Retirement | Alpha Picks | Allocation
+    // Circular: swiping right on Allocation wraps back to Brokerage
+    const TABS = ['brokerage','ira','alphapicks','allocation'];
+    let sx = 0, sy = 0;
+    document.addEventListener('touchstart', e => {
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - sx;
+      const dy = e.changedTouches[0].clientY - sy;
+      // Only treat as horizontal swipe if dx dominates dy (2:1) and is long enough
+      if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 2) return;
+      const active = TABS.findIndex(t => document.getElementById(`tab-${t}`)?.classList.contains('active'));
+      if (active === -1) return;
+      const next = dx > 0
+        ? (active + 1) % TABS.length              // swipe right → tab to the right (circular)
+        : (active - 1 + TABS.length) % TABS.length; // swipe left  → tab to the left (circular)
+      switchTab(TABS[next]);
+    }, { passive: true });
+  })();
+</script>
+
+</body>
+</html>
