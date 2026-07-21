@@ -1,4 +1,4 @@
-# AlphaPicks Schwab Server
+﻿# AlphaPicks Schwab Server
 # Serves: /proxy (Yahoo CORS), /auth, /callback, /schwab/status, /schwab/api, /dashboard, /mobile, /store, /auto-log
 # Run via "! Open AlphaPicks Portfolio.bat" (as Admin for all-interface binding)
 
