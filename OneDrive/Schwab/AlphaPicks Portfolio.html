@@ -3995,18 +3995,27 @@
       const shares = parseFloat(row.dataset.shares);
       const cost   = parseFloat(row.dataset.cost);
       const q      = quoteMap[ticker];
-      if (!q) return;
 
       // Use pre/post price when available, otherwise last regular close.
       // postMarketPrice is checked on field presence alone (not gated to isPost) so the
       // frozen last trade keeps showing through CLOSED (evening/weekend) and the early-PRE
       // gap before real pre-market ticks appear — always the most recent actual quote.
-      const price    = q.isPre && q.preMarketPrice  != null ? q.preMarketPrice
+      const price    = !q ? null
+                     : q.isPre && q.preMarketPrice  != null ? q.preMarketPrice
                      : q.postMarketPrice != null ? q.postMarketPrice
                      : q.regularMarketPrice;
+      // No fresh price this cycle (rate-limit / proxy failure): keep this position in the
+      // portfolio total at its LAST-KNOWN market value, so one failed quote can't drop Current
+      // Value by that position's full worth and flip Total Change grossly negative until the
+      // next good update — the intermittent "wrong values" bug. The row's own cells keep their
+      // prior values; it self-heals on the next cycle that does get a price.
+      if (!price) {
+        const lastVal = parseFloat(row.dataset.mktVal);
+        if (!isNaN(lastVal)) totalValue += lastVal;
+        return;
+      }
       const priceTag = q.isPre && q.preMarketPrice  != null ? 'PRE'
                      : q.postMarketPrice != null ? 'AH' : null;
-      if (!price) return;
 
       // Flash on price change (strip tags from current cell text)
       const prevPrice = parseFloat(row.querySelector('.cur-price')?.innerText?.replace(/[^0-9.]/g, '') ?? '') || 0;
