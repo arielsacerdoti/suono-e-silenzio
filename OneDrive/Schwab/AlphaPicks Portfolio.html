@@ -141,6 +141,7 @@
 
     .pulse.error { background: #ff7b72; animation: none; }
     .pulse.loading { background: #e3b341; }
+    .pulse.warn { background: #d29922; animation: none; }  /* some prices stale this cycle */
 
     @keyframes pulse {
       0%   { opacity: 1; transform: scale(1); }
@@ -3442,7 +3443,7 @@
   })();
 
   function setStatus(state, text) {
-    pulse.className = 'pulse' + (state === 'error' ? ' error' : state === 'loading' ? ' loading' : '');
+    pulse.className = 'pulse' + (state === 'error' ? ' error' : state === 'loading' ? ' loading' : state === 'warn' ? ' warn' : '');
     refreshLabel.textContent = text;
     document.querySelectorAll('.full-refresh-btn').forEach(b => { b.disabled = (state === 'loading'); });
   }
@@ -4125,7 +4126,13 @@
         }
       }
     }
-    setStatus('ok', `Updated ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`);
+    // Status line doubles as a data-freshness indicator: when some positions couldn't be
+    // priced this cycle (rate-limit/proxy failure), they're held at last-known value in the
+    // total — show an amber dot + "N/M live" count so stale numbers are visible, not silent.
+    const _upTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    const _staleN = rows.length - updatedCount;
+    if (_staleN > 0) setStatus('warn', `Updated ${_upTime} · ${updatedCount}/${rows.length} live`);
+    else             setStatus('ok', `Updated ${_upTime}`);
     const _spyDone = fetchSpyBox(); // D2: non-blocking — SPY chip updates async; mobile push chains on it below
     fetchUsdIls();
     checkBuyCallReminder();
