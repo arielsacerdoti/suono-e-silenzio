@@ -2067,13 +2067,40 @@
     _syncToCloudTimer = setTimeout(() => syncToCloud(), 2000);
   }
 
-  async function syncToCloud() {
+  async function syncToCloud(forceGist = false) {
     // No early-exit — local server save must always run.
     // JSONBin push is separately gated below.
+    // forceGist=true bypasses the 5-min Gist throttle for the ONE push per sync cycle that carries
+    // the fully-computed IRR + reconciled flows (called from loadIRRData's end). Without this the
+    // throttle tends to admit the early mid-rebuild push and block the complete one, so the Gist
+    // (mobile's away-mode source) can lag a whole auto-refresh cycle before it carries flows.
     try {
       // Alpha Picks positions
       const posRows = Array.from(document.querySelectorAll('#picks-tbody tr[data-ticker]'));
       const safeFloat = (v, def = 0) => { const n = parseFloat(v); return isNaN(n) ? def : n; };
+
+      // Reconciled per-position cash-flow series (from loadIRRData's irrAuditData) so mobile can
+      // recompute EXACT XIRR on-device using its own live prices — buys negative, sells positive,
+      // DRIP excluded, splits zero-cost, zero-history guarded; no terminal (mobile appends its own).
+      // Persist the last COMPLETE set on window: irrAuditData is reset to [] at the start of every
+      // loadIRRData run, and syncToCloud fires once mid-rebuild (line ~5464) and once at completion
+      // (line ~7964). Rebuilding _lastGoodFlows only when irrAuditData is non-empty means every push
+      // — early or final — carries the last complete flows and can never ship an empty set. This
+      // mirrors how tabStats persists across runs.
+      if (Array.isArray(irrAuditData) && irrAuditData.length) {
+        const lg = { alphapicks: {}, brokerage: {}, ira: {} };
+        for (const e of irrAuditData) {
+          if (!e || !e.section || !e.sym || !Array.isArray(e.cashFlows)) continue;
+          if (!lg[e.section]) lg[e.section] = {};
+          lg[e.section][e.sym] = e.cashFlows
+            .filter(f => f && f.amount != null && f.date)
+            .map(f => ({ amount: f.amount, date: (f.date instanceof Date ? f.date : new Date(f.date)).toISOString() }));
+        }
+        window._lastGoodFlows = lg;
+      }
+      const _flowsFor = (section, sym) =>
+        (window._lastGoodFlows && window._lastGoodFlows[section] && window._lastGoodFlows[section][sym]) || null;
+
       const activePositions = posRows.map(r => ({
         id:           r.dataset.id,
         ticker:       r.dataset.ticker,
@@ -2090,6 +2117,7 @@
                       : null,
         mktVal:       r.dataset.mktVal ? safeFloat(r.dataset.mktVal) : null,
         dayPct:       r.dataset.dayPct ? safeFloat(r.dataset.dayPct) : null,
+        flows:        _flowsFor('alphapicks', r.dataset.ticker),
       }));
 
       // Brokerage positions (stocks + ETFs)
@@ -2107,6 +2135,7 @@
         date:         r.dataset.date || '',
         dayPct:       r.dataset.dayPct ? parseFloat(r.dataset.dayPct) : null,
         irrRate:      r.dataset.irrRate !== '' && r.dataset.irrRate != null ? parseFloat(r.dataset.irrRate) : null,
+        flows:        _flowsFor(iraMode ? 'ira' : 'brokerage', r.dataset.symbol),
         ...(r.dataset.hgi ? {
           hgi:          true,
           // IRA hgi: costBasis = adjustedMktVal after loadIRRData; Brok hgi: use econCostBasis if set
@@ -2164,7 +2193,7 @@
       // so it survives across syncToCloud calls.
       const GIST_PUSH_INTERVAL = 5 * 60 * 1000; // 5 min
       if (GIST_TOKEN && GIST_TOKEN !== 'YOUR_GITHUB_PAT' && GIST_ID && GIST_ID !== 'YOUR_GIST_ID'
-          && Date.now() - (window._lastGistPush || 0) > GIST_PUSH_INTERVAL) {
+          && (forceGist || Date.now() - (window._lastGistPush || 0) > GIST_PUSH_INTERVAL)) {
         window._lastGistPush = Date.now();
         try {
           const gistResp = await fetch(`https://api.github.com/gists/${GIST_ID}`, {
@@ -7960,8 +7989,10 @@ ${soldRowsData.length ? `<table>
     // Compute combined XIRR + SPY equivalent per tab — await so irrRate/spyIrrRate/spySimpleRet
     // are ready before syncToCloud serialises them into the mobile snapshot
     await computeTabIRRStats();
-    // Push updated IRR rates, SPY benchmarks and HGI values to mobile snapshot
-    syncToCloud();
+    // Push updated IRR rates, SPY benchmarks, reconciled flows and HGI values to mobile snapshot.
+    // forceGist=true: this is the one complete push per cycle — bypass the 5-min throttle so the
+    // Gist (mobile's away-mode source) carries flows immediately, not a cycle late.
+    syncToCloud(true);
     if (irrAuditData.length) {
       ['irr-audit-btn','irr-ira-audit-btn','irr-alphapicks-audit-btn'].forEach(id => {
         const el = document.getElementById(id); if (el) el.style.display = '';

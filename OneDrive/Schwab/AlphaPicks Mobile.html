@@ -678,6 +678,11 @@
   let _syncedAlphaPicksSpyIrrRate = null;  // S&P 500 Annual Return benchmark
   let _syncedAlphaPicksSpySimRet  = null;  // S&P 500 Total % Change benchmark
 
+  // Reconciled per-position cash-flows for Alpha Picks, keyed by ticker — shipped in the sync
+  // payload and stashed here by appendPositionCard so the DOM-row-based price loop can compute
+  // exact XIRR on-device (the Alpha Picks tab renders rows, not the card model that reads pos.flows).
+  let _apFlows = {};
+
   // Last synced Brokerage / IRA data — kept in memory so refreshBrokIraPrices()
   // can re-render with live FMP prices without needing a fresh cloud sync
   let _lastBrokData = null;  // { positions, irrRate, spyIrrRate, spySimRet }
@@ -1071,7 +1076,9 @@
     localStorage.setItem('alphapicks_div_alerts',  JSON.stringify(data.alerts  || {}));
     localStorage.setItem('alphapicks_sold', JSON.stringify((data.soldRows || []).map(r => r.id)));
 
-    // Render positions (batch — sort once at end)
+    // Render positions (batch — sort once at end). Reset the flows map first so a removed position
+    // can't leave a stale entry behind; appendPositionCard repopulates it from each pos.flows.
+    _apFlows = {};
     data.activePositions.forEach(pos => appendPositionCard(pos, true));
     mergePositionDuplicates();
     sortPositions();
@@ -1181,19 +1188,25 @@
       const dayChgColor = dayPct != null ? (dayPct >= 0 ? '#3fb950' : '#ff7b72') : '#8b949e';
       const dayChgText  = dayPct != null ? `${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%` : '—';
 
-      // Per-position IRR — prefer desktop-computed XIRR rate from sync; fall back to CAGR
+      // Per-position IRR — compute EXACT XIRR on-device from the reconciled cash-flow series shipped
+      // by the desktop (pos.flows), appending our own LIVE terminal so the rate reflects the
+      // mobile-fetched price. Falls back to the desktop-shipped rate, then to a CAGR estimate.
       const posDate = pos.date || MOBILE_BUY_DATES[pos.symbol] || '';
+      const fmtIrr = (irrPct) => ({
+        text:  irrPct > 1000 ? 'HIGH' : irrPct < -1000 ? 'LOW'
+             : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`,
+        color: irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72',
+      });
       let irrText = '—', irrColor = '#8b949e';
-      if (pos.irrRate != null) {
-        const irrPct = pos.irrRate * 100;
-        irrText  = irrPct > 1000 ? 'HIGH' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
-        irrColor = irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72';
+      const flowRate = irrFromFlows(pos.flows, mktVal);
+      if (flowRate != null) {
+        const f = fmtIrr(flowRate * 100); irrText = f.text; irrColor = f.color;
+      } else if (pos.irrRate != null) {
+        const f = fmtIrr(pos.irrRate * 100); irrText = f.text; irrColor = f.color;
       } else if (posDate && cost > 0 && mktVal > 0) {
         const yrs = (Date.now() - new Date(posDate + 'T12:00:00').getTime()) / (365.25 * 24 * 3600 * 1000);
         if (yrs > 1 / 365) {
-          const irrPct = (Math.pow(mktVal / cost, 1 / yrs) - 1) * 100;
-          irrText  = irrPct > 1000 ? 'HIGH' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
-          irrColor = irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72';
+          const f = fmtIrr((Math.pow(mktVal / cost, 1 / yrs) - 1) * 100); irrText = f.text; irrColor = f.color;
         }
       }
 
@@ -1254,11 +1267,35 @@
       dailySubHtml = `<div class="stat-sub" style="color:${dcUp ? '#3fb950' : '#ff7b72'}">${dcUp ? '+' : ''}${dailyPct.toFixed(2)}%</div>`;
     }
 
-    // Annual return tile — use pre-computed desktop XIRR rate when available (exact match to desktop)
+    // Annual return tile — compute EXACT tab XIRR on-device by pooling every position's reconciled
+    // cash-flows (pos.flows) plus a SINGLE combined LIVE terminal = Σ current market values, exactly
+    // mirroring desktop computeTabIRRStats (pool pre-terminal flows of IRR-enabled positions + one
+    // combined terminal). A position contributes its live mktVal to the terminal ONLY if its flows
+    // were pooled, so a missing-flows position never skews the rate. Falls back to the desktop-shipped
+    // tabIrrRate, then to a single-entry XIRR from cost + buy-date.
     // Color: binary green/red (≥0 = green) — matches desktop renderTabStats
     let annualValHtml = '<span style="color:#8b949e">—</span>';
-    if (tabIrrRate != null) {
-      const pct = tabIrrRate * 100;
+    let tabRate = null;
+    {
+      const pooled = [];
+      let liveTerm = 0;
+      positions.forEach(pos => {
+        if (!Array.isArray(pos.flows) || !pos.flows.length) return;
+        const _ps = pos.currentPrice > 0 ? pos.currentPrice * (pos.shares || 0) : 0;
+        const mv  = pos.mktVal > 0 ? pos.mktVal : _ps;
+        if (!(mv > 0)) return;
+        pos.flows.forEach(f => pooled.push({ amount: f.amount, date: new Date(f.date) }));
+        liveTerm += mv;
+      });
+      if (pooled.length && liveTerm > 0) {
+        pooled.push({ amount: liveTerm, date: new Date() });
+        pooled.sort((a, b) => a.date - b.date);
+        if (pooled.some(p => p.amount < 0)) tabRate = calcXIRR(pooled.map(p => p.amount), pooled.map(p => p.date));
+      }
+    }
+    if (tabRate == null && tabIrrRate != null) tabRate = tabIrrRate;
+    if (tabRate != null) {
+      const pct = tabRate * 100;
       annualValHtml = `<span style="color:${pct >= 0 ? '#3fb950' : '#ff7b72'}">${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%</span>`;
     } else {
       // Fallback: XIRR from sync data (no full transaction history, but correct for single-entry positions)
@@ -1725,6 +1762,8 @@
     card.dataset.date   = pos.date;
     card.dataset.id     = pos.id;
     if (pos.originalCost) card.dataset.originalCost = pos.originalCost;
+    // Stash reconciled cash-flows for the price loop's on-device XIRR (keyed by ticker).
+    if (Array.isArray(pos.flows) && pos.flows.length) _apFlows[pos.ticker] = pos.flows;
 
     card.innerHTML = `
       <div class="card-top">
@@ -1868,6 +1907,22 @@
       }
     }
     return null;
+  }
+
+  // Compute EXACT XIRR on-device from a reconciled historical cash-flow series shipped by the
+  // desktop (flows = [{amount, date-ISO}] — buys negative, sells positive, DRIP excluded, splits
+  // zero-cost, zero-history guarded) by appending our own LIVE terminal value (current market value
+  // from the mobile-fetched price). This keeps the reconciliation engine solely on the desktop while
+  // letting mobile recompute the rate live and standalone. Returns a decimal rate, or null when the
+  // series is empty / has no outflow / the terminal is unknown (caller falls back to the shipped
+  // rate, then to a CAGR estimate).
+  function irrFromFlows(flows, liveTerminal) {
+    if (!Array.isArray(flows) || !flows.length || !(liveTerminal > 0)) return null;
+    const pairs = flows.map(f => ({ amount: f.amount, date: new Date(f.date) }));
+    pairs.push({ amount: liveTerminal, date: new Date() });
+    pairs.sort((a, b) => a.date - b.date);
+    if (!pairs.some(p => p.amount < 0)) return null;
+    return calcXIRR(pairs.map(p => p.amount), pairs.map(p => p.date));
   }
 
   async function fetchJSON(url, timeoutMs = 4000) {
@@ -2156,14 +2211,18 @@
     if (chipLabel) chipLabel.textContent = 'S&P FUT';
     const esUrl = `https://query1.finance.yahoo.com/v8/finance/chart/ES%3DF?interval=1m&range=5d&formatted=false&_cb=${Date.now()}`;
     let esData = null;
-    for (const proxyUrl of [
-      `http://localhost:7843/proxy?url=${encodeURIComponent(esUrl)}`,
-      `/proxy?url=${encodeURIComponent(esUrl)}`,
-    ]) {
-      try {
-        const r = await fetch(proxyUrl, { cache: 'no-store' });
-        if (r.ok) { esData = await r.json(); break; }
-      } catch {}
+    // Only try the local server proxy when actually at home — in AWAY/standalone mode these
+    // localhost URLs just eat a timeout before the public-proxy chain in fetchJSON takes over.
+    if (HOME_MODE) {
+      for (const proxyUrl of [
+        `http://localhost:7843/proxy?url=${encodeURIComponent(esUrl)}`,
+        `/proxy?url=${encodeURIComponent(esUrl)}`,
+      ]) {
+        try {
+          const r = await fetch(proxyUrl, { cache: 'no-store' });
+          if (r.ok) { esData = await r.json(); break; }
+        } catch {}
+      }
     }
     if (!esData) esData = await fetchJSON(esUrl);
     if (!esData) { el.textContent = '—'; el.style.color = '#8b949e'; return; }
@@ -2575,15 +2634,20 @@
       row.querySelector('.gain-loss').innerHTML =
         `<span class="${cls}">${sign}$${fmtD(Math.abs(gain))} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%)</span>`;
 
-      // Per-position annualised return (CAGR)
-      if (row.dataset.date && cost > 0 && value > 0) {
-        const buyDate = new Date(row.dataset.date);
-        const years   = (Date.now() - buyDate.getTime()) / (365.25 * 24 * 3600 * 1000);
-        const irrEl   = row.querySelector('.irr-val');
-        if (irrEl && years > 1 / 365) {  // at least 1 day old
-          const irrRate = Math.pow(value / cost, 1 / years) - 1;
-          const irrPct  = irrRate * 100;
-          irrEl.textContent = irrPct > 1000 ? 'HIGH' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
+      // Per-position annualised return — prefer EXACT XIRR from the reconciled flows + our own live
+      // terminal (value); fall back to CAGR from cost + buy date when no flows were shipped.
+      {
+        const irrEl = row.querySelector('.irr-val');
+        const flowRate = irrFromFlows(_apFlows[row.dataset.ticker], value);
+        let irrPct = null;
+        if (flowRate != null) {
+          irrPct = flowRate * 100;
+        } else if (row.dataset.date && cost > 0 && value > 0) {
+          const years = (Date.now() - new Date(row.dataset.date).getTime()) / (365.25 * 24 * 3600 * 1000);
+          if (years > 1 / 365) irrPct = (Math.pow(value / cost, 1 / years) - 1) * 100;  // at least 1 day old
+        }
+        if (irrEl && irrPct != null) {
+          irrEl.textContent = irrPct > 1000 ? 'HIGH' : irrPct < -1000 ? 'LOW' : `${irrPct >= 0 ? '+' : ''}${irrPct.toFixed(1)}%`;
           irrEl.style.color = irrPct >= 10 ? '#3fb950' : irrPct >= 5 ? '#e3b341' : '#ff7b72';
         }
       }
@@ -2649,8 +2713,28 @@
       xirrPairs.push({ amount: totalValue, date: new Date() });
       xirrPairs.sort((a, b) => a.date - b.date);
       const localRate = calcXIRR(xirrPairs.map(p => p.amount), xirrPairs.map(p => p.date));
-      // Prefer desktop-computed XIRR (full transaction history) when available; fall back to local
-      const finalRate = _syncedAlphaPicksIrrRate ?? localRate;
+      // Alpha Picks tab annual return — prefer EXACT XIRR pooled from the reconciled flows plus a
+      // single live terminal (Σ current values of positions that have flows), matching desktop
+      // computeTabIRRStats. Fall back to the desktop-shipped rate, then the row-based local XIRR.
+      let flowsTabRate = null;
+      {
+        const pooled = [];
+        let term = 0;
+        rows.forEach(r => {
+          const fl = _apFlows[r.dataset.ticker];
+          if (!Array.isArray(fl) || !fl.length) return;
+          const v = parseFloat((r.querySelector('.cur-value')?.textContent || '').replace(/[$,]/g, ''));
+          if (!(v > 0)) return;
+          fl.forEach(f => pooled.push({ amount: f.amount, date: new Date(f.date) }));
+          term += v;
+        });
+        if (pooled.length && term > 0) {
+          pooled.push({ amount: term, date: new Date() });
+          pooled.sort((a, b) => a.date - b.date);
+          if (pooled.some(p => p.amount < 0)) flowsTabRate = calcXIRR(pooled.map(p => p.amount), pooled.map(p => p.date));
+        }
+      }
+      const finalRate = flowsTabRate ?? _syncedAlphaPicksIrrRate ?? localRate;
       if (finalRate !== null) {
         const sign = finalRate >= 0 ? '+' : '';
         const statAR = document.getElementById('stat-annual-return');
