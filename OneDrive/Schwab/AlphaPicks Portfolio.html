@@ -1607,7 +1607,7 @@
   }
 
   // ── Daily portfolio log ───────────────────────────────────────────────────
-  function captureLogEntry(force = false) {
+  function captureLogEntry(force = false, silent = false) {
     const parseNum = str => {
       if (!str || str === '—') return '';
       const s = str.replace(/,/g, '');
@@ -1686,14 +1686,16 @@
       localStorage.setItem('alphapicks_log', JSON.stringify(log));
       console.log(`[Log] captured entry for ${dateStr} — log now has ${log.length} entries`);
 
-      const container = document.getElementById('div-toasts');
-      const toast = document.createElement('div');
-      toast.className = 'div-toast log';
-      toast.innerHTML = `
-        <span class="div-toast-icon">📊</span>
-        <span class="div-toast-body"><strong>Daily log captured</strong> — <a href="#" onclick="exportLog();return false;" style="color:#79c0ff;text-decoration:underline">Export Excel</a></span>
-        <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
-      container.appendChild(toast);
+      if (!silent) {
+        const container = document.getElementById('div-toasts');
+        const toast = document.createElement('div');
+        toast.className = 'div-toast log';
+        toast.innerHTML = `
+          <span class="div-toast-icon">📊</span>
+          <span class="div-toast-body"><strong>Daily log captured</strong> — <a href="#" onclick="exportLog();return false;" style="color:#79c0ff;text-decoration:underline">Export Excel</a></span>
+          <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+        container.appendChild(toast);
+      }
     } catch (err) {
       console.error('[AlphaPicks] captureLogEntry failed:', err);
     }
@@ -2953,20 +2955,32 @@
 
   async function autoBackfillHistory() {
     if (_autoBackfillDone) return;
-    _autoBackfillDone = true;
 
     const BACKFILL_START = '2025-12-03';
     const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
 
     // Already have backfill data going back to (or before) Dec 3 — nothing to do.
     const earliest = raw.filter(e => e._key).map(e => e._key).sort()[0];
-    if (earliest && earliest <= BACKFILL_START) return;
+    if (earliest && earliest <= BACKFILL_START) { _autoBackfillDone = true; return; }
 
-    // Need at least one real log entry to use as the scaling anchor.
-    const hasRealEntry = raw.some(e => !e._backfilled && e._key);
+    // Need a real (non-backfilled) Alpha Picks entry as the scaling anchor. If none exists
+    // yet — e.g. the log was blanked by a store-sync clobber after a code update — seed
+    // today's entry (same as the manual "Load History" button, but silent) so the history
+    // rebuilds fully in the background without the user clicking anything or waiting.
+    // Requires the Alpha Picks tab to be loaded; if it isn't yet, bail WITHOUT marking done
+    // so the next price cycle retries once tabStats.alphapicks is ready.
+    const hasRealAP = raw.some(e => !e._backfilled && e._key && e.alphapicks &&
+      (e.alphapicks.currentValue || e.alphapicks.totalInvested));
+    if (!hasRealAP) {
+      if (!tabStats.alphapicks?.ready) return;   // AP not loaded yet — retry next cycle
+      captureLogEntry(true, true);               // force + silent (seed anchor, no toast)
+    }
+    const hasRealEntry = JSON.parse(localStorage.getItem('alphapicks_log') || '[]')
+      .some(e => !e._backfilled && e._key);
     if (!hasRealEntry) return;
 
-    console.log('[AutoBackfill] Gap detected — running silent backfill from', BACKFILL_START);
+    _autoBackfillDone = true;
+    console.log('[AutoBackfill] Building history in background from', BACKFILL_START);
     await backfillPortfolioHistory({ silent: true });
     console.log('[AutoBackfill] Done.');
   }
