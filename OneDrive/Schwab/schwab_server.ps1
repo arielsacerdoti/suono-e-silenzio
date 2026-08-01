@@ -38,14 +38,97 @@ $API_BASE     = 'https://api.schwabapi.com'
 
 # --- Auto-log constants -------------------------------------------------------
 $FMP_KEY_SERVER   = 'RifQbMNRIh92cgRC44u30scmkMK0l0gK'
-$ALPHA_PICKS_SYMS = @('TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN','LITE')
+$ALPHA_PICKS_SYMS = @('TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN','LITE','CSTM','NEXA','MXL','SNDK','SNEX','ICHR','BTSG','CRDO')
+# Mirror of INITIAL_TAGGED_QGI in AlphaPicks Portfolio.html. Needed so the unattended raw
+# fallback path (below) excludes QG&I's own holdings from the Brokerage bucket the same way it
+# already excludes Alpha Picks' -- without this, QG&I's real positions (same physical brokerage
+# account, no separate account number to key off) got silently counted as Brokerage instead.
+$QGI_SYMS = @('KIM','COP','MPC','VLO','CVX','B','RTX','PSX','ADC','FRT','CTRE','XHR','RY','THG',
+              'AEP','EWBC','AGM','THFF','GRC','FAF','DRH','R','MDLZ','RBCAA','EPR','RLJ','XOM','JBSS','PNC','SRCE')
 $MARKET_HOLIDAYS  = @(
     '2026-01-01','2026-01-19','2026-02-16','2026-04-03',
     '2026-05-25','2026-07-03','2026-09-07','2026-11-26','2026-12-25',
     '2027-01-01','2027-01-18','2027-02-15','2027-04-02',
     '2027-05-31','2027-07-05','2027-09-06','2027-11-25','2027-12-24'
 )
-$LOG_XLSX_PATH = Join-Path $scriptDir 'AlphaPicks_Log.xlsx'
+$LOG_XLSX_PATH = Join-Path $scriptDir '!Alpha Picks Portfolio Log.xlsx'
+$PRICE_ALERT_LOG = Join-Path $scriptDir 'price_alerts.log'
+
+# Persistent record of a degraded/skipped auto-log price fetch (e.g. FMP quota exhausted with
+# Yahoo also failing) -- appends to a small durable log file and also stashes the same info in
+# the store so the dashboard can show a banner about it next time it's opened, since this path
+# only ever runs unattended (no browser open to notice in real time otherwise).
+function Write-PriceAlert($pricedCount, $totalCount, $store, $storeFile) {
+    try {
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  Degraded auto-log: $pricedCount/$totalCount symbols priced -- entry skipped"
+        Add-Content -Path $PRICE_ALERT_LOG -Value $line -Encoding UTF8
+        if ((Get-Item $PRICE_ALERT_LOG -ErrorAction SilentlyContinue).Length -gt 64KB) {
+            $lines = Get-Content $PRICE_ALERT_LOG
+            $lines | Select-Object -Last 100 | Set-Content $PRICE_ALERT_LOG -Encoding UTF8
+        }
+    } catch {}
+    try {
+        $alert = @{ ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds(); pricedCount = $pricedCount; totalCount = $totalCount }
+        if (-not ($store | Get-Member -Name price_source_alert -ErrorAction SilentlyContinue)) {
+            $store | Add-Member -NotePropertyName price_source_alert -NotePropertyValue $alert -Force
+        } else {
+            $store.price_source_alert = $alert
+        }
+        $store | ConvertTo-Json -Depth 10 -Compress | Set-Content $storeFile -Encoding UTF8
+    } catch {}
+}
+
+# Server-side mirror of getSessionFromClock() in both HTML files (ET clock, ignores API
+# marketState -- see the comment on that JS function for why). Needed here now that FMP usage
+# is restricted to REGULAR session only: 2:00-9:30am PRE, 9:30am-4:00pm REGULAR, 4:00-8:00pm
+# POST, else/weekends CLOSED.
+function Get-MarketSession {
+    $etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([datetime]::UtcNow, 'Eastern Standard Time')
+    if ($etNow.DayOfWeek -eq 'Saturday' -or $etNow.DayOfWeek -eq 'Sunday') { return 'CLOSED' }
+    $mins = $etNow.Hour * 60 + $etNow.Minute
+    if ($mins -ge 120  -and $mins -lt 570)  { return 'PRE' }
+    if ($mins -ge 570  -and $mins -lt 960)  { return 'REGULAR' }
+    if ($mins -ge 960  -and $mins -lt 1200) { return 'POST' }
+    return 'CLOSED'
+}
+
+$FMP_USAGE_LOG = Join-Path $scriptDir 'fmp_usage.log'
+
+# Durable record of every time FMP actually gets used as a backup (client-reported via
+# /fmp-usage-log, or server-side call sites below) -- lets us measure the REAL post-change call
+# volume instead of just estimating it. One line per batch: timestamp, calling context, symbol
+# count, and the symbols themselves.
+function Write-FmpUsage($context, [string[]]$symbols) {
+    if (-not $symbols -or $symbols.Count -eq 0) { return }
+    try {
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  [$context] $($symbols.Count) symbols: $($symbols -join ',')"
+        Add-Content -Path $FMP_USAGE_LOG -Value $line -Encoding UTF8
+        if ((Get-Item $FMP_USAGE_LOG -ErrorAction SilentlyContinue).Length -gt 256KB) {
+            $lines = Get-Content $FMP_USAGE_LOG
+            $lines | Select-Object -Last 2000 | Set-Content $FMP_USAGE_LOG -Encoding UTF8
+        }
+    } catch {}
+}
+
+$YAHOO_FAILURE_LOG = Join-Path $scriptDir 'yahoo_failures.log'
+
+# Durable record of every time Yahoo's v8 chart (client-reported via /yahoo-failure-log, through
+# fetchTickerChart's own full fallback chain -- local proxy, direct, corsproxy.io, thingproxy,
+# codetabs) came back with no usable price at all. Added 2026-08-01: discovered FMP can only
+# serve ~5 of our ~60 real holdings on the current plan tier (402 for everything else), so Yahoo
+# is the only real price source for most positions -- "positions not updating" is a Yahoo-
+# reliability question, and there was no visibility into Yahoo failures at all before this.
+function Write-YahooFailure($symbol) {
+    if (-not $symbol) { return }
+    try {
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $symbol"
+        Add-Content -Path $YAHOO_FAILURE_LOG -Value $line -Encoding UTF8
+        if ((Get-Item $YAHOO_FAILURE_LOG -ErrorAction SilentlyContinue).Length -gt 256KB) {
+            $lines = Get-Content $YAHOO_FAILURE_LOG
+            $lines | Select-Object -Last 2000 | Set-Content $YAHOO_FAILURE_LOG -Encoding UTF8
+        }
+    } catch {}
+}
 
 # --- ImportExcel check/install ------------------------------------------------
 $script:hasImportExcel = $false
@@ -94,6 +177,52 @@ function Get-ValidToken {
     return $tok
 }
 
+# Schwab Market Data (/marketdata/v1/quotes) as primary price source, replacing Yahoo -- same
+# OAuth token already used for positions, one call covers every symbol (confirmed 2026-08-01:
+# all 58 real holdings in 530ms, including tickers FMP's plan can't serve at all).
+#
+# Field mapping, cross-validated against Yahoo for AAPL on 2026-08-01:
+#   regular.regularMarketLastPrice / quote.closePrice == Yahoo's regularMarketPrice (both are
+#   the latest completed regular-session close/current-price reference). Schwab doesn't expose
+#   a standalone "previous close" field, but regular.regularMarketNetChange is computed against
+#   it (confirmed: price - netChange landed within ~0.4 of Yahoo's chartPreviousClose for the
+#   same instant), so prevClose is derived from it. Returns a hashtable keyed by symbol with the
+#   same {price, prev, name} shape the existing Yahoo/FMP job scriptblock already returns, so it
+#   drops into /mobile-data and /auto-log's $px map without touching downstream code.
+function Get-SchwabQuotes($tok, [string[]]$symbols) {
+    $out = @{}
+    if (-not $tok -or -not $symbols -or $symbols.Count -eq 0) { return $out }
+    try {
+        $symStr = ($symbols -join ',')
+        $url = "${API_BASE}/marketdata/v1/quotes?symbols=$([Uri]::EscapeDataString($symStr))"
+        $r = Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $($tok.access_token)"; Accept = 'application/json' } `
+            -UseBasicParsing -TimeoutSec 15 -ErrorAction Stop
+        $data = $r.Content | ConvertFrom-Json
+        foreach ($sym in $symbols) {
+            $sq = $data.$sym
+            if (-not $sq -or -not $sq.quote) { continue }
+            $q = $sq.quote; $reg = $sq.regular
+            $price = if ($reg -and $reg.regularMarketLastPrice) { [double]$reg.regularMarketLastPrice }
+                     elseif ($q.closePrice) { [double]$q.closePrice }
+                     elseif ($q.mark)       { [double]$q.mark }
+                     elseif ($q.lastPrice)  { [double]$q.lastPrice }
+                     else { $null }
+            if (-not $price) { continue }
+            $prev = if ($reg -and $null -ne $reg.regularMarketNetChange) { $price - [double]$reg.regularMarketNetChange }
+                    elseif ($q.closePrice) { [double]$q.closePrice }
+                    else { $price }
+            # Sanity guard: quote.closePrice has been observed to drift to a stale/rolled-over
+            # value over a weekend while regular.regularMarketLastPrice stays fixed (confirmed
+            # 2026-08-01) -- if that ever produces an implausible swing, skip this symbol rather
+            # than risk corrupting G/L; the caller's Yahoo/FMP fallback picks it up instead.
+            if (-not $prev -or [Math]::Abs(($price - $prev) / $prev) -gt 0.5) { continue }
+            $name = if ($sq.reference -and $sq.reference.description) { $sq.reference.description } else { $sym }
+            $out[$sym] = @{ price = $price; prev = $prev; name = $name }
+        }
+    } catch { Write-Host "[Schwab Quotes] failed: $_" -ForegroundColor Yellow }
+    return $out
+}
+
 # --- HTTP helpers -------------------------------------------------------------
 function Send-Json($res, $obj, $status = 200) {
     $bytes = [Text.Encoding]::UTF8.GetBytes(($obj | ConvertTo-Json -Depth 10 -Compress))
@@ -111,11 +240,37 @@ function Send-Text($res, $text, $status = 200, $ct = 'text/plain; charset=utf-8'
     $res.Close()
 }
 
+# Stream.Read() is NOT guaranteed to fill the buffer in one call -- for HttpListener request
+# streams it reliably does for small bodies (worked by luck up to ~tens of KB) but silently
+# returns a partial read for larger ones, truncating the body with no error. A truncated JSON
+# body then fails to parse (or parses to something wrong) downstream. Loop until ContentLength64
+# bytes are actually read (or the stream ends).
+function Read-RequestBody($req) {
+    $len = $req.ContentLength64
+    if ($len -le 0) { return [byte[]]@() }
+    $bodyBytes = New-Object byte[] $len
+    $offset = 0
+    while ($offset -lt $len) {
+        $read = $req.InputStream.Read($bodyBytes, $offset, $len - $offset)
+        if ($read -le 0) { break }  # stream closed early
+        $offset += $read
+    }
+    if ($offset -lt $len) {
+        Write-Host "[Server] WARNING: request body short read - expected $len bytes, got $offset" -ForegroundColor Yellow
+    }
+    return $bodyBytes
+}
+
 function Send-Html($res, $file) {
     if (-not (Test-Path $file)) { Send-Text $res 'Not found' 404; return }
     $bytes = [IO.File]::ReadAllBytes($file)
     $res.StatusCode  = 200
     $res.ContentType = 'text/html; charset=utf-8'
+    # Never cache the HTML — a stale cached page is the #1 cause of "not loading" / old UI
+    # after an edit (browser serves an old copy). Force a fresh fetch every load.
+    $res.Headers.Add('Cache-Control', 'no-cache, no-store, must-revalidate')
+    $res.Headers.Add('Pragma', 'no-cache')
+    $res.Headers.Add('Expires', '0')
     $res.OutputStream.Write($bytes, 0, $bytes.Length)
     $res.Close()
 }
@@ -124,6 +279,23 @@ function Send-Cors($res) {
     $res.Headers.Add('Access-Control-Allow-Origin',  '*')
     $res.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     $res.Headers.Add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+}
+
+# The browser ALWAYS writes alphapicks_log via localStorage.setItem(key, JSON.stringify(log)) --
+# its write-through POST to /store therefore always sends a STRING value for this key. Whenever
+# the server later reads $store.alphapicks_log back out, it's a [string], not a native array/
+# object -- `@($store.alphapicks_log)` on a string just wraps the WHOLE STRING as one useless
+# array element (never parses it), so every date/tab lookup on it silently returns nothing and
+# Write-LogExcel produces a near-empty file. This was the actual root cause of the log "not
+# working properly" for a long time -- confirmed 2026-07-26: store.json had the real ~161-entry
+# history intact the whole time, just always skipped because it arrived as a string whenever the
+# browser (not the server's own /auto-log write) had written it last. Always parse-if-string here.
+function Get-LogArray($raw) {
+    if ($null -eq $raw) { return @() }
+    if ($raw -is [string]) {
+        try { return @($raw | ConvertFrom-Json) } catch { return @() }
+    }
+    return @($raw)
 }
 
 # --- Excel log writer ---------------------------------------------------------
@@ -136,7 +308,8 @@ function Write-LogExcel {
         $tabDefs = @(
             @{ id = 'brokerage';  sheet = 'Brokerage';   extraKey = $null },
             @{ id = 'ira';        sheet = 'Retirement';  extraKey = $null },
-            @{ id = 'alphapicks'; sheet = 'Alpha Picks'; extraKey = 'usdils' }
+            @{ id = 'alphapicks'; sheet = 'Alpha Picks'; extraKey = 'usdils' },
+            @{ id = 'qgi';        sheet = 'QG&I';        extraKey = $null }
         )
 
         # Helper: parse any date string to DateTime for sorting/formatting
@@ -154,6 +327,30 @@ function Write-LogExcel {
         # Sort log newest-first for all tab processing
         $sortedLog = $Log | Sort-Object { Parse-LogDate $_.date } -Descending
 
+        # Many historical entries predate the nested per-tab log format and store Alpha Picks
+        # data directly on the entry (e.data.totalInvested etc., no e.alphapicks sub-object) —
+        # the single-day backfillLogEntry() has always written this old flat shape. The client's
+        # buildLogWorkbook() already falls back to it; mirror that here so these ~157 historical
+        # days don't silently vanish from the Alpha Picks sheet.
+        function Get-TabSection($e, $tabId) {
+            $sec = $e.$tabId
+            if ($sec) { return $sec }
+            if ($tabId -eq 'alphapicks' -and $null -ne $e.totalInvested) {
+                $symbols = @{}
+                foreach ($t in @($e._tickers)) {
+                    if ($null -ne $e.$t) { $symbols[$t] = $e.$t }
+                }
+                return [PSCustomObject]@{
+                    totalInvested = $e.totalInvested; currentValue = $e.currentValue
+                    dailyChange   = $e.dailyChange;    totalChange  = $e.totalChange
+                    pctChange     = $e.pctChange;      spyPct       = $e.spyPct
+                    annualReturn  = $e.annualReturn;   spyReturn    = $e.spyReturn
+                    _tickers      = @($e._tickers);    _symbols     = $symbols
+                }
+            }
+            return $null
+        }
+
         $pkg = $null
         foreach ($tab in $tabDefs) {
             $tabId = $tab.id
@@ -161,7 +358,7 @@ function Write-LogExcel {
             # Collect unique tickers (newest-first so most recent ticker set leads)
             $seen = @{}; $allTickers = @()
             foreach ($e in $sortedLog) {
-                $sec = $e.$tabId
+                $sec = Get-TabSection $e $tabId
                 if (-not $sec) { continue }
                 $tickers = if ($sec._tickers) { $sec._tickers } else { @() }
                 foreach ($t in $tickers) {
@@ -170,7 +367,7 @@ function Write-LogExcel {
             }
 
             $rows = foreach ($e in $sortedLog) {
-                $sec = $e.$tabId
+                $sec = Get-TabSection $e $tabId
                 if (-not $sec) { continue }
 
                 # Format date as DD-Mon-YYYY to match reference log format
@@ -209,6 +406,21 @@ function Write-LogExcel {
             } else {
                 $pkg = $rows | Export-Excel -Path $Path -WorksheetName $tab.sheet -PassThru -ClearSheet -AutoSize -BoldTopRow
             }
+
+            # Number formats: $ columns (Total Invested/Current Value/Daily Change/Total Change,
+            # plus every per-ticker price column) get whole-dollar $, % columns get a "%" suffix,
+            # and the optional USD/ILS rate column keeps decimal precision.
+            $wsFmt = $pkg.Workbook.Worksheets[$tab.sheet]
+            $lastRow = $wsFmt.Dimension.End.Row
+            $lastCol = $wsFmt.Dimension.End.Column
+            $extraCol = if ($tab.extraKey) { 10 } else { 0 }
+            for ($c = 2; $c -le $lastCol; $c++) {
+                $fmt = if ($c -ge 2 -and $c -le 5) { '$#,##0' }
+                       elseif ($c -ge 6 -and $c -le 9) { '0.00"%"' }
+                       elseif ($c -eq $extraCol) { '0.000' }
+                       else { '$#,##0' }
+                $wsFmt.Cells[2, $c, $lastRow, $c].Style.Numberformat.Format = $fmt
+            }
         }
         if ($pkg) { Close-ExcelPackage $pkg }
         Write-Host "[Auto-log] Excel written to $Path" -ForegroundColor Green
@@ -225,7 +437,7 @@ $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIden
     [Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if ($isAdmin) {
-    $listener.Prefixes.Add("http://*:${port}/")
+    $listener.Prefixes.Add("http://+:${port}/")
     Write-Host "[Server] Listening on all interfaces (admin mode) — port $port" -ForegroundColor Green
 } else {
     $listener.Prefixes.Add("http://localhost:${port}/")
@@ -454,7 +666,10 @@ while ($listener.IsListening) {
             # Get Schwab positions
             $tok = Get-ValidToken
             $allSwPos = @()
-            $iraTypes = @('IRA','ROTH_IRA','SEP_IRA','SIMPLE_IRA')
+            # Schwab's securitiesAccount.type is the registration type (CASH/MARGIN), not tax status —
+            # it never matches an IRA-sounding string. IRA classification must go by account number
+            # (same source of truth the browser uses: schwab_retirement_accounts).
+            $iraAccountNums = Get-LogArray $store.schwab_retirement_accounts
             if ($tok) {
                 try {
                     $r = Invoke-WebRequest -Uri "${API_BASE}/trader/v1/accounts?fields=positions" `
@@ -462,7 +677,8 @@ while ($listener.IsListening) {
                         -UseBasicParsing -TimeoutSec 20 -ErrorAction Stop
                     $accounts = $r.Content | ConvertFrom-Json
                     foreach ($acct in $accounts) {
-                        $aType = $acct.securitiesAccount.type
+                        $acctNum = "$($acct.securitiesAccount.accountNumber)"
+                        $isIraAcct = $iraAccountNums -contains $acctNum
                         $pList = $acct.securitiesAccount.positions
                         if ($pList) {
                             foreach ($p in $pList) {
@@ -470,7 +686,7 @@ while ($listener.IsListening) {
                                     symbol   = $p.instrument.symbol
                                     shares   = [double]$p.longQuantity
                                     avgPrice = [double]$p.averageLongPrice
-                                    acctType = $aType
+                                    isIra    = $isIraAcct
                                 }
                             }
                         }
@@ -481,29 +697,25 @@ while ($listener.IsListening) {
             # Collect all unique symbols for FMP
             $allSyms = ($ALPHA_PICKS_SYMS + ($allSwPos | ForEach-Object { $_.symbol })) | Sort-Object -Unique
 
-            # Fetch FMP prices in parallel
+            # Schwab Market Data PRIMARY -- one call covers every symbol (same OAuth token as
+            # positions, already fetched above). Only symbols Schwab misses fall through to the
+            # per-symbol Yahoo/FMP jobs below.
+            $px = Get-SchwabQuotes -tok $tok -symbols $allSyms
+            $remainingSyms = $allSyms | Where-Object { -not $px.ContainsKey($_) }
+
+            # Fetch remaining prices in parallel. Yahoo v8 chart is fallback; FMP only fills a
+            # symbol Yahoo missed too, and only during REGULAR market hours -- FMP's free tier is
+            # 250 calls/day total (confirmed 2026-07-30), and this endpoint alone could burn
+            # through that in one cache-refresh cycle under the old FMP-first order. $session is
+            # computed once here (outside the job) since Start-Job runspaces can't see outer-scope
+            # state.
+            $mobileSession = Get-MarketSession
             $fmpSB = [scriptblock]::Create(@'
-param($s, $k)
+param($s, $k, $sess)
 # Jobs run in a separate runspace — ensure TLS 1.2 so HTTPS to FMP/Yahoo works.
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
-# Primary: FMP, retried up to 3x. A burst of ~20 parallel jobs can trip FMP's 429 rate
-# limit; a jittered backoff + retry lets a throttled request succeed on a later attempt
-# instead of returning no price (which would zero the position's market value downstream).
-for ($i = 0; $i -lt 3; $i++) {
-    try {
-        $url = "https://financialmodelingprep.com/stable/quote?symbol=$s&apikey=$k"
-        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop
-        $d = $r.Content | ConvertFrom-Json
-        if ($d -and $d.Count -gt 0 -and $d[0].price) {
-            return @{ price = [double]$d[0].price; prev = [double]$d[0].previousClose; name = [string]$d[0].name }
-        }
-    } catch {
-        Start-Sleep -Milliseconds (400 + (Get-Random -Maximum 800))
-    }
-}
-
-# Fallback: Yahoo v8 chart (server-side fetch, no CORS; more tolerant than v7, which 401s).
+# Primary: Yahoo v8 chart (server-side fetch, no CORS; more tolerant than v7, which 401s).
 try {
     $yurl = "https://query1.finance.yahoo.com/v8/finance/chart/$($s)?interval=1d&range=1d"
     $yr = Invoke-WebRequest -Uri $yurl -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop -Headers @{ 'User-Agent' = 'Mozilla/5.0' }
@@ -514,18 +726,40 @@ try {
     }
 } catch {}
 
+if ($sess -ne 'REGULAR') { return $null } # FMP off-limits outside market hours
+
+# Backup: FMP, retried up to 3x. A burst of ~20 parallel jobs can trip FMP's 429 rate
+# limit; a jittered backoff + retry lets a throttled request succeed on a later attempt
+# instead of returning no price (which would zero the position's market value downstream).
+for ($i = 0; $i -lt 3; $i++) {
+    try {
+        $url = "https://financialmodelingprep.com/stable/quote?symbol=$s&apikey=$k"
+        $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop
+        $d = $r.Content | ConvertFrom-Json
+        if ($d -and $d.Count -gt 0 -and $d[0].price) {
+            return @{ price = [double]$d[0].price; prev = [double]$d[0].previousClose; name = [string]$d[0].name; usedFmp = $true }
+        }
+    } catch {
+        Start-Sleep -Milliseconds (400 + (Get-Random -Maximum 800))
+    }
+}
+
 return $null
 '@)
             $fmpJobs2 = @{}
-            foreach ($sym in $allSyms) {
-                $fmpJobs2[$sym] = Start-Job -ScriptBlock $fmpSB -ArgumentList $sym, $FMP_KEY_SERVER
+            foreach ($sym in $remainingSyms) {
+                $fmpJobs2[$sym] = Start-Job -ScriptBlock $fmpSB -ArgumentList $sym, $FMP_KEY_SERVER, $mobileSession
             }
-            $px = @{}
-            foreach ($sym in $allSyms) {
+            $fmpUsedSyms = @()
+            foreach ($sym in $remainingSyms) {
                 $j = $fmpJobs2[$sym]; Wait-Job $j -Timeout 30 | Out-Null
                 $r2 = Receive-Job $j; Remove-Job $j -Force
-                if ($r2) { $px[$sym] = $r2 }
+                if ($r2) {
+                    $px[$sym] = $r2
+                    if ($r2.usedFmp) { $fmpUsedSyms += $sym }
+                }
             }
+            Write-FmpUsage 'mobile-data' $fmpUsedSyms
 
             # Buy dates (mirror of INITIAL_BUY_DATES in Portfolio.html)
             $bd = @{
@@ -541,7 +775,7 @@ return $null
             # Build activePositions (Alpha Picks tab)
             $activePositions = @()
             foreach ($sym in $ALPHA_PICKS_SYMS) {
-                $sw = $allSwPos | Where-Object { $_.symbol -eq $sym -and $iraTypes -notcontains $_.acctType } | Select-Object -First 1
+                $sw = $allSwPos | Where-Object { $_.symbol -eq $sym -and -not $_.isIra } | Select-Object -First 1
                 $shares   = if ($sw) { [double]$sw.shares }   else { 0 }
                 $avgPrice = if ($sw) { [double]$sw.avgPrice } else { 0 }
                 $p        = if ($px.ContainsKey($sym)) { $px[$sym] } else { $null }
@@ -563,8 +797,9 @@ return $null
 
             # Build brokerage positions (non-AP Schwab positions)
             $brokerage = @()
-            foreach ($sw in ($allSwPos | Where-Object { $iraTypes -notcontains $_.acctType })) {
+            foreach ($sw in ($allSwPos | Where-Object { -not $_.isIra })) {
                 $sym = $sw.symbol
+                if (-not $sym) { continue }
                 if ($ALPHA_PICKS_SYMS -contains $sym) { continue }
                 $p      = if ($px.ContainsKey($sym)) { $px[$sym] } else { $null }
                 $curPrice = if ($p) { $p.price } else { 0 }
@@ -581,9 +816,16 @@ return $null
             }
 
             # Build IRA positions
+            # KNOWN LIMITATION: HGI private-fund positions have no exchange symbol ($sym is
+            # null) and are skipped here -- same limitation /auto-log's equivalent loop already
+            # documents. Without this guard, $px.ContainsKey($null) throws, which was silently
+            # caught by this endpoint's outer try/catch and masked by falling back to a
+            # (progressively stale) cached mobile_data.json -- confirmed 2026-08-01 when forcing
+            # a fresh compute (deleting the cache) surfaced the throw for the first time.
             $ira = @()
-            foreach ($sw in ($allSwPos | Where-Object { $iraTypes -contains $_.acctType })) {
+            foreach ($sw in ($allSwPos | Where-Object { $_.isIra })) {
                 $sym = $sw.symbol
+                if (-not $sym) { continue }
                 $p      = if ($px.ContainsKey($sym)) { $px[$sym] } else { $null }
                 $curPrice = if ($p) { $p.price } else { 0 }
                 $prev   = if ($p) { $p.prev } else { 0 }
@@ -637,8 +879,7 @@ return $null
     if ($path -eq '/save-mobile-data' -and $meth -eq 'POST') {
         $mobileDataFile = Join-Path $scriptDir 'mobile_data.json'
         try {
-            $bodyBytes = New-Object byte[] $req.ContentLength64
-            [void]$req.InputStream.Read($bodyBytes, 0, $bodyBytes.Length)
+            $bodyBytes = Read-RequestBody $req
             [IO.File]::WriteAllBytes($mobileDataFile, $bodyBytes)
             Send-Json $res @{ ok = $true }
         } catch {
@@ -661,8 +902,7 @@ return $null
             }
         } elseif ($meth -eq 'POST') {
             try {
-                $bodyBytes = New-Object byte[] $req.ContentLength64
-                [void]$req.InputStream.Read($bodyBytes, 0, $bodyBytes.Length)
+                $bodyBytes = Read-RequestBody $req
                 $bodyStr = [System.Text.Encoding]::UTF8.GetString($bodyBytes)
                 $incoming = $bodyStr | ConvertFrom-Json
                 # Key-value pair update: merge single key into existing store
@@ -671,11 +911,20 @@ return $null
                     # it was silently throwing here, swallowed by the catch below, so $store2 was ALWAYS
                     # empty and every single-key write was overwriting the entire store with just that key.
                     $store2 = @{}
+                    $existingReadOk = $true
                     if (Test-Path $storeFile) {
                         try {
                             $existing = Get-Content $storeFile -Raw | ConvertFrom-Json
                             foreach ($prop in $existing.PSObject.Properties) { $store2[$prop.Name] = $prop.Value }
-                        } catch {}
+                        } catch { $existingReadOk = $false }
+                    }
+                    # CRITICAL: if the existing store exists but couldn't be parsed, do NOT write —
+                    # rebuilding from an empty hashtable would overwrite the whole store with just this
+                    # one key, wiping everything else. This is what wiped schwab_csv_txns / retirement
+                    # accounts when a corrupted alphapicks_log made the store unparseable. Abort instead.
+                    if ((Test-Path $storeFile) -and -not $existingReadOk) {
+                        Send-Json $res @{ ok = $false; error = 'existing store unparseable - write aborted to protect other keys' } 500
+                        continue
                     }
                     if ($null -eq $incoming.value) {
                         $store2.Remove($incoming.key)
@@ -697,6 +946,69 @@ return $null
         continue
     }
 
+    # ── /fmp-usage-log (POST — client reports every time it used FMP as a Yahoo-miss backup) ──
+    # Purely for measuring real-world FMP call volume after the Yahoo-primary/FMP-backup change;
+    # never blocks or affects the caller's own price fetch.
+    if ($path -eq '/fmp-usage-log' -and $meth -eq 'POST') {
+        try {
+            $bodyBytes = Read-RequestBody $req
+            $payload   = ([System.Text.Encoding]::UTF8.GetString($bodyBytes)) | ConvertFrom-Json
+            $symbols   = @($payload.symbols)
+            $context   = if ($payload.context) { "$($payload.context)" } else { 'unknown' }
+            Write-FmpUsage $context $symbols
+            Send-Json $res @{ ok = $true }
+        } catch {
+            Send-Json $res @{ ok = $false } 500
+        }
+        continue
+    }
+
+    # ── /fmp-usage-summary (GET — today's total FMP call count, for the daily dashboard toast) ──
+    # alreadyShown/claim logic lives here (not in the client) so the "one toast per day" rule is
+    # a single global fact in store.json, not a per-browser-origin localStorage flag -- accessing
+    # the dashboard via localhost/LAN IP/Tailscale IP are three separate origins with separate
+    # localStorage, which is exactly what produced three duplicate toasts (confirmed 2026-08-01).
+    # Whichever client asks first on a given day "claims" the toast; every other client (any
+    # origin, any tab) sees alreadyShown=true and skips it.
+    if ($path -eq '/fmp-usage-summary' -and $meth -eq 'GET') {
+        $todayStr = ([System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([datetime]::UtcNow, 'Eastern Standard Time')).ToString('yyyy-MM-dd')
+        $totalCalls = 0
+        if (Test-Path $FMP_USAGE_LOG) {
+            Get-Content $FMP_USAGE_LOG | ForEach-Object {
+                if ($_ -match '^(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}\s+\[[^\]]+\]\s+(\d+)\s+symbols') {
+                    if ($matches[1] -eq $todayStr) { $totalCalls += [int]$matches[2] }
+                }
+            }
+        }
+        $store = @{}
+        if (Test-Path $storeFile) { try { $store = Get-Content $storeFile -Raw | ConvertFrom-Json } catch {} }
+        $alreadyShown = ("$($store.fmp_toast_shown_date)" -eq $todayStr)
+        if (-not $alreadyShown) {
+            if (-not ($store | Get-Member -Name fmp_toast_shown_date -ErrorAction SilentlyContinue)) {
+                $store | Add-Member -NotePropertyName fmp_toast_shown_date -NotePropertyValue $todayStr -Force
+            } else {
+                $store.fmp_toast_shown_date = $todayStr
+            }
+            try { $store | ConvertTo-Json -Depth 10 -Compress | Set-Content $storeFile -Encoding UTF8 } catch {}
+        }
+        Send-Json $res @{ date = $todayStr; totalCalls = $totalCalls; limit = 250; overLimit = ($totalCalls -gt 250); alreadyShown = $alreadyShown }
+        continue
+    }
+
+    # ── /yahoo-failure-log (POST — client reports every time Yahoo's chart API had no price) ──
+    # Purely diagnostic (see Write-YahooFailure); never blocks or affects the caller's own fetch.
+    if ($path -eq '/yahoo-failure-log' -and $meth -eq 'POST') {
+        try {
+            $bodyBytes = Read-RequestBody $req
+            $payload   = ([System.Text.Encoding]::UTF8.GetString($bodyBytes)) | ConvertFrom-Json
+            Write-YahooFailure "$($payload.symbol)"
+            Send-Json $res @{ ok = $true }
+        } catch {
+            Send-Json $res @{ ok = $false } 500
+        }
+        continue
+    }
+
     # ── /auto-log (POST — called by background job at 4:05 PM ET, or by browser Export Log) ────
     if ($path -eq '/auto-log' -and $meth -eq 'POST') {
         Write-Host "[Auto-log] Starting daily log capture..." -ForegroundColor Cyan
@@ -712,8 +1024,7 @@ return $null
             try {
                 $bodyLen = $ctx.Request.ContentLength64
                 if ($bodyLen -gt 0) {
-                    $bodyBytes = New-Object byte[] $bodyLen
-                    [void]$ctx.Request.InputStream.Read($bodyBytes, 0, $bodyLen)
+                    $bodyBytes = Read-RequestBody $ctx.Request
                     $bodyStr = [System.Text.Encoding]::UTF8.GetString($bodyBytes)
                     if ($bodyStr.Trim().StartsWith('{')) {
                         $browserPayload = $bodyStr | ConvertFrom-Json
@@ -725,13 +1036,21 @@ return $null
                 Write-Host "[Auto-log] Using browser-provided entry (fast path)" -ForegroundColor Cyan
                 $log = @()
                 if ($browserPayload.fullLog) {
-                    try { $log = @($browserPayload.fullLog) } catch {}
+                    try { $log = Get-LogArray $browserPayload.fullLog } catch {}
                 } elseif ($store.alphapicks_log) {
-                    try { $log = @($store.alphapicks_log) } catch {}
+                    $log = Get-LogArray $store.alphapicks_log
                 }
                 $entry = $browserPayload.entry
                 $dateVal = if ($entry.date) { $entry.date } else { $entry._key }
-                $log = @($log | Where-Object { $_.date -ne $dateVal -and $_._key -ne $dateVal })
+                # Match on _key AND .date, and check the incoming entry's OWN _key too --
+                # a stray entry left over from the server's ISO-dated raw fallback (no
+                # matching browser _key) would otherwise survive a same-day dedup that only
+                # compared one field/format, producing a duplicate row for the same trading day.
+                $entryKey = $entry._key
+                $log = @($log | Where-Object {
+                    $_.date -ne $dateVal -and $_._key -ne $dateVal -and
+                    (-not $entryKey -or ($_.date -ne $entryKey -and $_._key -ne $entryKey))
+                })
                 $log = @($entry) + $log
                 if (-not ($store | Get-Member -Name alphapicks_log -ErrorAction SilentlyContinue)) {
                     $store | Add-Member -NotePropertyName alphapicks_log -NotePropertyValue $log -Force
@@ -752,15 +1071,15 @@ return $null
                         -UseBasicParsing -TimeoutSec 20 -ErrorAction Stop
                     $accounts = $r.Content | ConvertFrom-Json
                     foreach ($acct in $accounts) {
-                        $type = $acct.securitiesAccount.type
+                        $acctNum   = "$($acct.securitiesAccount.accountNumber)"
                         $positions = $acct.securitiesAccount.positions
                         if ($positions) {
                             foreach ($pos in $positions) {
                                 $schwabPos += @{
-                                    symbol   = $pos.instrument.symbol
-                                    shares   = [double]$pos.longQuantity
-                                    avgPrice = [double]$pos.averageLongPrice
-                                    type     = $type
+                                    symbol        = $pos.instrument.symbol
+                                    shares        = [double]$pos.longQuantity
+                                    avgPrice      = [double]$pos.averageLongPrice
+                                    accountNumber = $acctNum
                                 }
                             }
                         }
@@ -770,45 +1089,101 @@ return $null
                 }
             }
 
-            # Fetch FMP prices for all symbols (sequential direct calls — no Start-Job overhead)
+            # Fetch prices for all symbols (sequential direct calls — no Start-Job overhead).
+            # Yahoo v8 chart is now PRIMARY, FMP only fills a symbol Yahoo missed, and only during
+            # REGULAR market hours -- FMP's free tier is 250 calls/day total (confirmed
+            # 2026-07-30), which the OLD FMP-first order blew through in minutes across every
+            # price-refresh path in the app combined. This endpoint fires at 4:05pm ET, i.e.
+            # right at the REGULAR->POST boundary, so in practice it will rarely if ever reach
+            # for FMP at all -- Yahoo's closing print should already be authoritative by then.
             $allFmpSyms = ($ALPHA_PICKS_SYMS + ($schwabPos | ForEach-Object { $_.symbol } | Where-Object { $_ })) |
                           Sort-Object -Unique
-            $prices = @{}
-            foreach ($sym in $allFmpSyms) {
+            $session = Get-MarketSession
+
+            # Schwab Market Data PRIMARY -- one call covers every symbol (same OAuth token
+            # already used for positions above). Only symbols Schwab misses fall through to the
+            # per-symbol Yahoo/FMP loop below.
+            $prices = Get-SchwabQuotes -tok $tok -symbols $allFmpSyms
+            $remainingFmpSyms = $allFmpSyms | Where-Object { -not $prices.ContainsKey($_) }
+            foreach ($sym in $remainingFmpSyms) {
+                try {
+                    $yurl = "https://query1.finance.yahoo.com/v8/finance/chart/$($sym)?interval=1d&range=1d"
+                    $yr   = Invoke-WebRequest -Uri $yurl -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop -Headers @{ 'User-Agent' = 'Mozilla/5.0' }
+                    $meta = ($yr.Content | ConvertFrom-Json).chart.result[0].meta
+                    if ($meta -and $meta.regularMarketPrice) {
+                        $prev = if ($meta.previousClose) { $meta.previousClose } else { $meta.chartPreviousClose }
+                        $prices[$sym] = @{ price = [double]$meta.regularMarketPrice; prev = [double]$prev }
+                        continue
+                    }
+                } catch {
+                    Write-Host "[Auto-log] Yahoo miss: $sym" -ForegroundColor DarkGray
+                }
+                if ($session -ne 'REGULAR') { continue } # FMP off-limits outside market hours
                 try {
                     $url  = "https://financialmodelingprep.com/stable/quote?symbol=$sym&apikey=$FMP_KEY_SERVER"
                     $data = Invoke-RestMethod -Uri $url -TimeoutSec 10 -ErrorAction Stop
                     if ($data -and $data.Count -gt 0) {
                         $prices[$sym] = @{ price = [double]$data[0].price; prev = [double]$data[0].previousClose }
+                        Write-FmpUsage 'auto-log' @($sym)
                     }
                 } catch {
-                    Write-Host "[Auto-log] FMP miss: $sym" -ForegroundColor DarkGray
+                    Write-Host "[Auto-log] FMP fallback miss: $sym" -ForegroundColor DarkGray
                 }
             }
 
-            $iraTypes = @('IRA','ROTH_IRA','SEP_IRA','SIMPLE_IRA')
+            # Quality gate: if a price source outage (like the FMP quota hit above) left most
+            # symbols without a real price, every position would fall back to curVal=invested
+            # (0 daily/total change) -- a flat, useless snapshot that's worse than no snapshot at
+            # all, since it silently pollutes the log rather than leaving today's entry for the
+            # browser's own (better-sourced) capture or next-run backfill to fill in properly.
+            $pricedCount = ($allFmpSyms | Where-Object { $prices.ContainsKey($_) }).Count
+            if ($allFmpSyms.Count -gt 0 -and ($pricedCount / $allFmpSyms.Count) -lt 0.6) {
+                Write-Host "[Auto-log] Aborting: only $pricedCount/$($allFmpSyms.Count) symbols priced (FMP/Yahoo both degraded) — not writing a flat snapshot" -ForegroundColor Red
+                Write-PriceAlert $pricedCount $allFmpSyms.Count $store $storeFile
+                Send-Json $res @{ ok = $false; error = "price sources degraded: $pricedCount/$($allFmpSyms.Count) symbols priced" } 503
+                continue
+            }
+
+            # Schwab's securitiesAccount.type is the registration type (CASH/MARGIN), not tax status —
+            # it never matches an IRA-sounding string. IRA classification must go by account number
+            # (same source of truth the browser uses: schwab_retirement_accounts).
+            $iraAccountNums = Get-LogArray $store.schwab_retirement_accounts
 
             # Compute Alpha Picks tab value + per-ticker symbols
-            $apValue = 0.0; $apPrevValue = 0.0
+            $apValue = 0.0; $apPrevValue = 0.0; $apInvestedLive = 0.0; $apHasLiveCost = $false
             $apTickers = @(); $apSymbols = @{}
             foreach ($sym in $ALPHA_PICKS_SYMS) {
-                if (-not $prices.ContainsKey($sym)) { continue }
                 $match = $schwabPos | Where-Object { $_.symbol -eq $sym } | Select-Object -First 1
-                $shares = 0.0
-                if ($match) { $shares = [double]$match.shares }
+                $shares = 0.0; $avgPrice = 0.0
+                if ($match) { $shares = [double]$match.shares; $avgPrice = [double]$match.avgPrice; $apHasLiveCost = $true }
                 if ($shares -eq 0 -and $store.alphapicks_price_cache) {
                     try {
                         $cached = $store.alphapicks_price_cache
                         if ($cached.$sym) { $shares = [double]$cached.$sym.shares }
                     } catch {}
                 }
-                $apValue     += $shares * $prices[$sym].price
-                $apPrevValue += $shares * $prices[$sym].prev
+                if ($shares -eq 0) { continue }
+                # FMP quota/outage fallback: degrade to avg cost rather than dropping the ticker
+                $p         = if ($prices.ContainsKey($sym)) { $prices[$sym] } else { $null }
+                $curPrice  = if ($p) { $p.price } else { $avgPrice }
+                $prevPrice = if ($p) { $p.prev  } else { $avgPrice }
+                $apValue     += $shares * $curPrice
+                $apPrevValue += $shares * $prevPrice
+                $apInvestedLive += $shares * $avgPrice
                 $apTickers   += $sym
-                $apSymbols[$sym] = [Math]::Round($prices[$sym].price, 4)
+                $apSymbols[$sym] = [Math]::Round($curPrice, 4)
             }
 
             # Compute Brokerage and IRA tab values + per-ticker symbols
+            # KNOWN LIMITATION: the two HGI private-fund positions (no exchange symbol, so
+            # $pos.symbol is null) get skipped by "if (-not $sym) { continue }" below and are
+            # NOT included in iraInvested/iraValue -- confirmed 2026-07-30, understates IRA by
+            # ~$229k. Valuing them correctly requires the same equity/interest NAV computation
+            # the desktop app's HGI IRR path does (see AlphaPicks Portfolio.html's "IRR HGI"
+            # code), which isn't worth replicating here for a fallback path that's only ever
+            # used when no browser was open at all -- the browser's own next capture overwrites
+            # this entry with the real figure. Do not mistake a run of this path for ground truth
+            # on IRA's total.
             $brokerValue = 0.0; $brokerPrev = 0.0; $brokerInvested = 0.0
             $iraValue    = 0.0; $iraPrev    = 0.0; $iraInvested    = 0.0
             $brokTickers = @(); $brokSymbols = @{}
@@ -817,9 +1192,9 @@ return $null
             foreach ($pos in $schwabPos) {
                 $sym = $pos.symbol
                 if (-not $sym) { continue }
-                $isIra    = $iraTypes -contains $pos.type
-                # Alpha Picks symbols belong to the Alpha Picks tab only, not Brokerage
-                if (-not $isIra -and ($ALPHA_PICKS_SYMS -contains $sym)) { continue }
+                $isIra    = $iraAccountNums -contains $pos.accountNumber
+                # Alpha Picks and QG&I symbols belong to their own tabs, not Brokerage
+                if (-not $isIra -and (($ALPHA_PICKS_SYMS -contains $sym) -or ($QGI_SYMS -contains $sym))) { continue }
                 $p        = if ($prices.ContainsKey($sym)) { $prices[$sym] } else { $null }
                 $shares   = [double]$pos.shares
                 $avgPrice = [double]$pos.avgPrice
@@ -837,16 +1212,25 @@ return $null
                 }
             }
 
-            # Get Alpha Picks invested from store cache
+            # Alpha Picks invested: prefer the live figure computed above from real Schwab
+            # avgPrice x shares (same method used for Brokerage/IRA) -- the browser-written
+            # tabStatsSnap cache is only a fallback for when Schwab auth/positions aren't
+            # available at all (e.g. token expired during an unattended run), since relying
+            # on it as the primary source left this at 0 whenever the cache was stale/missing,
+            # which is what silently zeroed out Total Invested for the unattended 4:05pm capture.
             $apInvested = 0.0
-            try {
-                if ($store.alphapicks_price_cache -and $store.alphapicks_price_cache.tabStatsSnap) {
-                    $snap = $store.alphapicks_price_cache.tabStatsSnap
-                    if ($snap.alphapicks -and $snap.alphapicks.invested) {
-                        $apInvested = [double]$snap.alphapicks.invested
+            if ($apHasLiveCost) {
+                $apInvested = $apInvestedLive
+            } else {
+                try {
+                    if ($store.alphapicks_price_cache -and $store.alphapicks_price_cache.tabStatsSnap) {
+                        $snap = $store.alphapicks_price_cache.tabStatsSnap
+                        if ($snap.alphapicks -and $snap.alphapicks.invested) {
+                            $apInvested = [double]$snap.alphapicks.invested
+                        }
                     }
-                }
-            } catch {}
+                } catch {}
+            }
 
             # USD/ILS from store cache
             $usdils = $null
@@ -868,14 +1252,20 @@ return $null
                 if ($store.iraSpySimpleRet      -ne $null) { $iraSpySim= [double]$store.iraSpySimpleRet      * 100 }
             } catch {}
 
-            # Build log entry using browser-compatible field names
+            # Build log entry using browser-compatible field names.
+            # Date must be the ET trading day this data is the close for, not whatever UTC
+            # calendar day happens to be "now" -- this endpoint only fires at exactly 4:05pm ET
+            # on a trading day (see $autoLogJob), so ET "now" IS that trading day's close.
             $now   = [DateTimeOffset]::UtcNow
+            $etNow = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId($now.UtcDateTime, 'Eastern Standard Time')
+            $dateKey = $etNow.ToString('yyyy-MM-dd')
             $apTotalChg = [Math]::Round($apValue - $apInvested, 2)
             $brokTotalChg = [Math]::Round($brokerValue - $brokerInvested, 2)
             $iraTotalChg  = [Math]::Round($iraValue - $iraInvested, 2)
             $entry = @{
                 ts         = $now.ToUnixTimeMilliseconds()
-                date       = $now.ToString('yyyy-MM-dd')
+                date       = $dateKey
+                _key       = $dateKey
                 usdils     = $usdils
                 alphapicks = @{
                     totalInvested = [Math]::Round($apInvested, 2)
@@ -916,12 +1306,12 @@ return $null
             }
 
             # Append to log in store
-            $log = @()
-            if ($store.alphapicks_log) {
-                try { $log = @($store.alphapicks_log) } catch {}
-            }
-            # Remove existing entry for today to avoid duplicates
-            $log = @($log | Where-Object { $_.date -ne $entry.date })
+            $log = Get-LogArray $store.alphapicks_log
+            # Remove any existing entry for this trading day, matched by _key (ISO, what the
+            # browser's captureLogEntry sets) OR by .date -- browser entries use dd-MMM-yyyy for
+            # .date while this entry uses ISO, so comparing only .date (as before) let both
+            # coexist as separate rows instead of the later one replacing the earlier one.
+            $log = @($log | Where-Object { $_._key -ne $dateKey -and $_.date -ne $dateKey })
             $log += $entry
 
             # Save store
@@ -962,7 +1352,7 @@ return $null
         if (Test-Path $LOG_XLSX_PATH) {
             $bytes = [System.IO.File]::ReadAllBytes($LOG_XLSX_PATH)
             $res.ContentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            $res.Headers.Add('Content-Disposition', "attachment; filename=`"AlphaPicks_Log.xlsx`"")
+            $res.Headers.Add('Content-Disposition', "attachment; filename=`"!Alpha Picks Portfolio Log.xlsx`"")
             Send-Cors $res
             $res.ContentLength64 = $bytes.Length
             $res.OutputStream.Write($bytes, 0, $bytes.Length)

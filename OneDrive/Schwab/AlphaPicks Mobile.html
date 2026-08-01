@@ -407,6 +407,7 @@
   <button class="tab-btn" id="tab-btn-brokerage" onclick="switchTab('brokerage')">Brokerage</button>
   <button class="tab-btn" id="tab-btn-ira" onclick="switchTab('ira')">Retirement</button>
   <button class="tab-btn active" id="tab-btn-alphapicks" onclick="switchTab('alphapicks')">Alpha Picks</button>
+  <button class="tab-btn" id="tab-btn-qgi" onclick="switchTab('qgi')">QG&amp;I</button>
   <button class="tab-btn" id="tab-btn-allocation" onclick="switchTab('allocation')">Allocation</button>
 </div>
 </div><!-- #sticky-top -->
@@ -474,6 +475,11 @@
 
 <!-- Brokerage Tab -->
 <div id="tab-brokerage" class="tab-panel">
+  <div id="intraday-strip-brokerage" style="width:100%;height:68px;background:#0d1117;border-bottom:1px solid #21262d;position:relative;overflow:hidden">
+    <canvas id="intraday-canvas-brokerage" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+    <div style="position:absolute;top:7px;left:14px;font-size:0.67rem;color:#484f58;pointer-events:none;letter-spacing:.06em;z-index:1">DAY G/L</div>
+    <div id="intraday-val-brokerage" style="position:absolute;top:5px;right:14px;font-size:0.75rem;font-weight:600;color:#8b949e;pointer-events:none;z-index:1"></div>
+  </div>
   <div class="acct-tab-total" id="brok-total-bar">Loading…</div>
   <div id="brokerage-list"><div style="text-align:center;padding:3rem 1rem;color:#8b949e;font-size:.85rem">Sync from desktop to load Brokerage data</div></div>
   <div class="footer">Brokerage &bull; Data synced from desktop</div>
@@ -481,9 +487,26 @@
 
 <!-- IRA Tab -->
 <div id="tab-ira" class="tab-panel">
+  <div id="intraday-strip-ira" style="width:100%;height:68px;background:#0d1117;border-bottom:1px solid #21262d;position:relative;overflow:hidden">
+    <canvas id="intraday-canvas-ira" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+    <div style="position:absolute;top:7px;left:14px;font-size:0.67rem;color:#484f58;pointer-events:none;letter-spacing:.06em;z-index:1">DAY G/L</div>
+    <div id="intraday-val-ira" style="position:absolute;top:5px;right:14px;font-size:0.75rem;font-weight:600;color:#8b949e;pointer-events:none;z-index:1"></div>
+  </div>
   <div class="acct-tab-total" id="ira-total-bar">Loading…</div>
   <div id="ira-list"><div style="text-align:center;padding:3rem 1rem;color:#8b949e;font-size:.85rem">Sync from desktop to load IRA data</div></div>
   <div class="footer">Retirement &bull; Data synced from desktop</div>
+</div>
+
+<!-- QG&I Tab -->
+<div id="tab-qgi" class="tab-panel">
+  <div id="intraday-strip-qgi" style="width:100%;height:68px;background:#0d1117;border-bottom:1px solid #21262d;position:relative;overflow:hidden">
+    <canvas id="intraday-canvas-qgi" style="position:absolute;inset:0;width:100%;height:100%"></canvas>
+    <div style="position:absolute;top:7px;left:14px;font-size:0.67rem;color:#484f58;pointer-events:none;letter-spacing:.06em;z-index:1">DAY G/L</div>
+    <div id="intraday-val-qgi" style="position:absolute;top:5px;right:14px;font-size:0.75rem;font-weight:600;color:#8b949e;pointer-events:none;z-index:1"></div>
+  </div>
+  <div class="acct-tab-total" id="qgi-total-bar">Loading…</div>
+  <div id="qgi-list"><div style="text-align:center;padding:3rem 1rem;color:#8b949e;font-size:.85rem">Sync from desktop to load QG&amp;I data</div></div>
+  <div class="footer">Quant Growth &amp; Income &bull; Benchmarks: S&amp;P 500 &amp; VYM &bull; Data synced from desktop</div>
 </div>
 
 <!-- Allocation Tab -->
@@ -596,25 +619,72 @@
   const GIST_ID    = 'ac2630f3f93387e8c6931ebb27d694a7';
   const GIST_TOKEN = 'REDACTED_TOKEN_REMOVED'; // read-only gist scope
 
-  // HOME_SERVER: your desktop's LAN IP + port. Update if your router assigns a new IP.
-  // The app probes this at startup to auto-detect home vs away.
-  const HOME_SERVER = window.location.port === '7843' ? window.location.origin : 'http://192.168.1.139:7843';
+  // HOME_SERVER candidates: your desktop's LAN IP and Tailscale IP, both on port 7843.
+  // Update these if your router/Tailscale assigns new addresses.
+  // detectHomeMode() races BOTH so this one URL works whether you're on home WiFi (LAN answers)
+  // or away with the laptop reachable over Tailscale (LAN times out, Tailscale answers) — it used
+  // to only try the LAN address, so "away but laptop on" was indistinguishable from "laptop off"
+  // and always fell back to the (possibly stale) Gist snapshot even when a live fetch was possible.
+  const HOME_SERVER_CANDIDATES = window.location.port === '7843'
+    ? [window.location.origin]
+    : ['http://192.168.1.139:7843', 'http://100.119.49.20:7843'];
+
+  // HOME_SERVER starts as the first candidate and is updated to whichever one actually answers.
+  let HOME_SERVER = HOME_SERVER_CANDIDATES[0];
 
   // HOME_MODE starts as a quick URL check; detectHomeMode() refines it asynchronously.
-  // This lets the app work whether opened from http://192.168.1.x:7843/mobile  OR  file:// on phone.
+  // This lets the app work whether opened from http://192.168.1.x:7843/mobile, from GitHub
+  // Pages, or file:// on phone.
   let HOME_MODE = window.location.port === '7843';
 
   async function detectHomeMode() {
     if (HOME_MODE) return; // already confirmed by URL
-    // M2: 400 ms timeout — local server answers in <100 ms or isn't there; 2 s was too conservative.
-    const ac = new AbortController();
-    setTimeout(() => ac.abort(), 400);
+    // 800 ms timeout — up to two real network hops now (LAN + Tailscale, the latter often
+    // relayed) instead of one same-subnet address, so a bit more headroom than the old 400 ms.
+    const probes = HOME_SERVER_CANDIDATES.map(base => {
+      const ac = new AbortController();
+      const t  = setTimeout(() => ac.abort(), 800);
+      return fetch(`${base}/schwab/status`, { signal: ac.signal, cache: 'no-store', mode: 'no-cors' })
+        .then(() => base)
+        .finally(() => clearTimeout(t));
+    });
     try {
-      await fetch(`${HOME_SERVER}/schwab/status`, { signal: ac.signal, cache: 'no-store', mode: 'no-cors' });
+      HOME_SERVER = await Promise.any(probes); // first candidate to answer wins
       HOME_MODE = true;
     } catch {
-      HOME_MODE = false;
+      HOME_MODE = false; // both candidates failed/timed out
     }
+  }
+
+  // Best-effort report of every time FMP got used as a Yahoo-miss backup, so real-world call
+  // volume after the Yahoo-primary/FMP-backup change (2026-07-30) can be measured instead of
+  // estimated -- see Write-FmpUsage / fmp_usage.log in schwab_server.ps1. Only fires when a
+  // desktop server is actually reachable (HOME_MODE); away mode has nowhere to log to. Never
+  // awaited, never blocks or affects the caller's own price fetch.
+  function logFmpUsage(symbols, context) {
+    if (!symbols || !symbols.length || !HOME_MODE) return;
+    try {
+      fetch(`${HOME_SERVER}/fmp-usage-log`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ symbols, context }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  // Best-effort report of every time Yahoo's v8 chart came back with no usable price at all.
+  // See the matching function/comment in AlphaPicks Portfolio.html (2026-08-01) -- FMP can only
+  // serve ~5 of our ~60 real holdings on the current plan, so Yahoo is the only real source for
+  // most positions here too.
+  function logYahooFailure(symbol) {
+    if (!symbol || !HOME_MODE) return;
+    try {
+      fetch(`${HOME_SERVER}/yahoo-failure-log`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ symbol }),
+      }).catch(() => {});
+    } catch (_) {}
   }
 
   let rows, tickers, divCache = {};
@@ -687,6 +757,7 @@
   // can re-render with live FMP prices without needing a fresh cloud sync
   let _lastBrokData = null;  // { positions, irrRate, spyIrrRate, spySimRet }
   let _lastIraData  = null;
+  let _lastQgiData  = null;  // QG&I — also carries benchIrrRate/benchSimRet (VYM)
 
   function toggleDemo() {
     DEMO_ACTIVE = !DEMO_ACTIVE;
@@ -863,77 +934,12 @@
     container.appendChild(toast);
   }
 
-  // ── Daily portfolio log ───────────────────────────────────────────────────
-  function captureLogEntry(force = false) {
-    const parseNum = str => {
-      if (!str || str === '—') return '';
-      const m = str.replace(/,/g, '').match(/-?\d+\.?\d*/);
-      return m ? parseFloat(m[0]) : '';
-    };
-    try {
-      const etNow  = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const dateStr = `${String(etNow.getDate()).padStart(2,'0')}-${MON[etNow.getMonth()]}-${etNow.getFullYear()}`;
-      const dateKey = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
-      const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
-      const isToday = e => e.date === dateStr || e._key === dateKey || e.date === dateKey;
-      if (raw.some(isToday) && !force) return;
-      const log = raw.filter(e => !isToday(e));
-      const g    = id => document.getElementById(id)?.textContent?.trim() || '';
-      const gSpy = id => { const t = g(id); return parseNum(t.includes(':') ? t.split(':').pop() : t); };
-      const entry = {
-        date: dateStr, _key: dateKey,
-        totalInvested: parseNum(g('stat-total-invested')),
-        currentValue:  parseNum(g('stat-total-value')),
-        dailyChange:   parseNum(g('stat-daily-change')),
-        totalChange:   parseNum(g('stat-total-gain')),
-        pctChange:     parseNum(g('stat-pct-change')),
-        spyPct:        gSpy('stat-spy-pct'),
-        annualReturn:  parseNum(g('stat-annual-return')),
-        spyReturn:     gSpy('stat-spy-return'),
-        usdils:        parseNum(g('usdils-box')),
-      };
-      const domCards = [...document.querySelectorAll('#holdings-list .holding-card[data-ticker]')].reverse();
-      domCards.forEach(card => {
-        entry[card.dataset.ticker] = parseNum(card.querySelector('.cur-price')?.textContent?.trim());
-      });
-      entry._tickers = domCards.map(r => r.dataset.ticker);
-      log.unshift(entry);
-      localStorage.setItem('alphapicks_log', JSON.stringify(log));
-      console.log(`[Log] captured entry for ${dateStr} — log now has ${log.length} entries`);
-
-      const container = document.getElementById('div-toasts');
-      const toast = document.createElement('div');
-      toast.className = 'div-toast log';
-      toast.innerHTML = `
-        <span class="div-toast-icon">📊</span>
-        <span class="div-toast-body"><strong>Daily log captured</strong></span>
-        <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
-      container.appendChild(toast);
-    } catch (err) {
-      console.error('[AlphaPicks] captureLogEntry failed:', err);
-    }
-  }
-
-  function checkDailyLog() {
-    const etStr  = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
-    const etNow  = new Date(etStr);
-    const hour   = etNow.getHours();
-    const dow    = etNow.getDay();
-    const dateStr = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
-    const isHoliday = usMarketHolidays(etNow.getFullYear()).has(dateStr);
-    if (hour < 16)                          return;
-    if (dow === 0 || dow === 6 || isHoliday) return;
-    captureLogEntry(true);
-  }
-
-  function scheduleDailyLog() {
-    const etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const hour = etNow.getHours(), min = etNow.getMinutes(), sec = etNow.getSeconds();
-    if (hour >= 16) return;
-    const secsUntilClose = (16 * 3600 + 10) - (hour * 3600 + min * 60 + sec);
-    setTimeout(checkDailyLog, secsUntilClose * 1000);
-  }
+  // NOTE: mobile used to have its own independent daily log-capture mechanism here
+  // (captureLogEntry/checkDailyLog/scheduleDailyLog), mirroring the desktop app's. Removed
+  // 2026-07-31: it wrote to mobile's own local alphapicks_log copy, which nothing else in this
+  // page ever reads and which was never synced to the server -- a dead end that produced a
+  // "Daily log captured" toast every day past market close for a capture that served no
+  // purpose. The desktop app is the sole owner of the log/Excel file; mobile only ever reads.
 
 
   // ── Sync: HOME (local server) or AWAY (JSONBin / cache) ──────────────────
@@ -964,8 +970,8 @@
       const ac  = new AbortController();
       const tid = setTimeout(() => ac.abort(), 4000);
       try {
-        dbg('trying local server…');
-        const resp = await fetch('/mobile-data', { cache: 'no-store', signal: ac.signal });
+        dbg(`trying local server… (${HOME_SERVER})`);
+        const resp = await fetch(`${HOME_SERVER}/mobile-data`, { cache: 'no-store', signal: ac.signal });
         clearTimeout(tid);
         if (resp.ok) {
           data   = await resp.json();
@@ -1116,6 +1122,20 @@
       renderAccountCards('ira-list', 'ira-total-bar', data.ira,
         data.iraIrrRate ?? null, data.iraSpyIrrRate ?? null, data.iraSpySimpleRet ?? null);
     }
+    // Render QG&I tab — reuse renderAccountCards; map Alpha-Picks-style fields → account-card fields.
+    if (data.qgiPositions?.length) {
+      const qgiCards = data.qgiPositions.map(p => ({
+        symbol: p.ticker, company: p.company, shares: p.shares,
+        mktVal: p.mktVal, costBasis: p.cost, grossBuys: p.grossBuys, currentPrice: p.currentPrice,
+        dayPct: p.dayPct, date: p.date, flows: p.flows, irrRate: null,
+      }));
+      _lastQgiData = { positions: qgiCards, irrRate: data.qgiIrrRate ?? null,
+        spyIrrRate: data.qgiSpyIrrRate ?? null, spySimRet: data.qgiSpySimpleRet ?? null,
+        benchIrrRate: data.qgiBenchIrrRate ?? null, benchSimRet: data.qgiBenchSimpleRet ?? null };
+      renderAccountCards('qgi-list', 'qgi-total-bar', qgiCards,
+        data.qgiIrrRate ?? null, data.qgiSpyIrrRate ?? null, data.qgiSpySimpleRet ?? null,
+        data.qgiBenchIrrRate ?? null, data.qgiBenchSimpleRet ?? null);
+    }
     // Render Allocation tab
     if (data.allocation) renderAllocDonuts(data.allocation);
 
@@ -1127,7 +1147,7 @@
 
   // ── Tab switching ─────────────────────────────────────────────────────────
   function switchTab(id) {
-    ['alphapicks','brokerage','ira','allocation'].forEach(t => {
+    ['alphapicks','brokerage','ira','qgi','allocation'].forEach(t => {
       document.getElementById(`tab-${t}`)?.classList.toggle('active', t === id);
       document.getElementById(`tab-btn-${t}`)?.classList.toggle('active', t === id);
     });
@@ -1138,7 +1158,7 @@
 
   function fmtAcct(n) { return n != null ? `$${fmtD(n)}` : '—'; }
 
-  function renderAccountCards(listId, totalBarId, positions, tabIrrRate = null, tabSpyIrrRate = null, tabSpySimpleRet = null) {
+  function renderAccountCards(listId, totalBarId, positions, tabIrrRate = null, tabSpyIrrRate = null, tabSpySimpleRet = null, tabBenchIrrRate = null, tabBenchSimpleRet = null) {
     const list     = document.getElementById(listId);
     const totalBar = document.getElementById(totalBarId);
     if (!list) return;
@@ -1163,7 +1183,12 @@
       const mktVal = pos.mktVal  > 0 ? pos.mktVal  : _priceShares;
       const cost   = pos.costBasis > 0 ? pos.costBasis : _priceShares;
       const gl     = mktVal - cost;
-      const glPct  = cost > 0 ? (gl / cost * 100) : 0;
+      // % denominator: total capital ever deployed (pos.grossBuys, shipped from desktop's
+      // loadIRRData), not the raw remaining cost -- matches desktop's fix for the BSM/IRA
+      // "+1268%" bug (a mostly-sold-off position's net-invested balance shrinks toward zero
+      // while the real dollar profit stays the same size). Falls back to cost when not shipped.
+      const glBasis = pos.grossBuys > 0 ? pos.grossBuys : cost;
+      const glPct  = glBasis > 0 ? (gl / glBasis * 100) : 0;
       const isGain = gl >= 0;
       const sign   = isGain ? '+' : '-';
       const cls    = isGain ? 'gain' : 'loss';
@@ -1230,7 +1255,7 @@
           </div>
           <div class="card-right">
             <span class="day-chg" style="color:${dayChgColor}">${dayChgText}</span>
-            <span class="cur-price" style="color:${priceColor}">$${fmtPrice(displayPrice)}</span>
+            <span class="cur-price" style="color:${priceColor}">$${fmtPrice(displayPrice)}${pos.priceTag ? ` <span class="market-label">${pos.priceTag}</span>` : ''}</span>
           </div>
         </div>
         <div class="card-bot">
@@ -1266,6 +1291,12 @@
       dailyValHtml = `<span style="color:${dcUp ? '#3fb950' : '#ff7b72'}">${dcUp ? '+' : '-'}$${fmtD(Math.abs(totalDayChange))}</span>`;
       dailySubHtml = `<div class="stat-sub" style="color:${dcUp ? '#3fb950' : '#ff7b72'}">${dcUp ? '+' : ''}${dailyPct.toFixed(2)}%</div>`;
     }
+
+    // Feed this tab's own intraday G/L chart (mirrors Alpha Picks' pushIntradaySnap call in
+    // fetchPrices) -- listId maps 1:1 to a tab, so derive the chart's tabId from it here rather
+    // than threading a new param through all 4 call sites.
+    const _intradayTabId = listId === 'brokerage-list' ? 'brokerage' : listId === 'ira-list' ? 'ira' : listId === 'qgi-list' ? 'qgi' : null;
+    if (_intradayTabId && hasDayChange) pushIntradaySnap(totalDayChange, _intradayTabId);
 
     // Annual return tile — compute EXACT tab XIRR on-device by pooling every position's reconciled
     // cash-flows (pos.flows) plus a SINGLE combined LIVE terminal = Σ current market values, exactly
@@ -1334,6 +1365,12 @@
     const spyRetSubHtml   = tabSpyIrrRate != null
       ? `<div class="stat-sub" style="color:${tabSpyIrrRate >= 0 ? '#3fb950' : '#ff7b72'}">S&P 500: ${fmtSpyPct(tabSpyIrrRate * 100)}</div>`
       : `<div class="stat-sub" style="color:#8b949e">S&P 500: —</div>`;
+    // VYM benchmark sub-text — QG&I only (teal); shown when the desktop shipped bench rates
+    const hasBench = tabBenchIrrRate != null || tabBenchSimpleRet != null;
+    const vymPctSubHtml = hasBench
+      ? `<div class="stat-sub" style="color:#2dd4bf">VYM: ${tabBenchSimpleRet != null ? fmtSpyPct(tabBenchSimpleRet * 100) : '—'}</div>` : '';
+    const vymRetSubHtml = hasBench
+      ? `<div class="stat-sub" style="color:#2dd4bf">VYM: ${tabBenchIrrRate != null ? fmtSpyPct(tabBenchIrrRate * 100) : '—'}</div>` : '';
 
     if (totalBar) totalBar.innerHTML = `
       <div class="stats-grid">
@@ -1359,11 +1396,13 @@
           <div class="stat-label">Total % Change</div>
           <div class="stat-value ${isPos ? 'green' : 'red'}">${isPos ? '+' : ''}${totalGlPct.toFixed(1)}%</div>
           ${spyPctSubHtml}
+          ${vymPctSubHtml}
         </div>
         <div class="stat-card">
           <div class="stat-label">Annual Return</div>
           <div class="stat-value">${annualValHtml}</div>
           ${spyRetSubHtml}
+          ${vymRetSubHtml}
         </div>
       </div>`;
   }
@@ -1759,6 +1798,10 @@
     card.dataset.ticker = pos.ticker;
     card.dataset.shares = pos.shares;
     card.dataset.cost   = pos.cost;
+    // Total capital ever deployed, shipped from desktop's loadIRRData -- the stable G/L%
+    // denominator (fixes the "+1268%" bug for positions mostly sold off). Falls back to cost
+    // in fetchPrices' pct calc when this wasn't shipped (older sync payload).
+    if (pos.grossBuys) card.dataset.grossBuys = pos.grossBuys;
     card.dataset.date   = pos.date;
     card.dataset.id     = pos.id;
     if (pos.originalCost) card.dataset.originalCost = pos.originalCost;
@@ -1926,14 +1969,16 @@
   }
 
   async function fetchJSON(url, timeoutMs = 4000) {
-    // In HOME_MODE the app is served from localhost:7843, so /proxy is same-origin (works).
-    // In AWAY_MODE (file:// or remote) skip localhost proxy — it would just fail.
+    // In HOME_MODE, HOME_SERVER points at whichever address (same-origin, LAN, or Tailscale)
+    // detectHomeMode() actually confirmed reachable, so /proxy always resolves to the real
+    // desktop server, not just when this page happens to be served BY it.
+    // In AWAY_MODE (no server reachable) skip this proxy — it would just fail.
     // Every attempt gets a per-attempt timeout (AbortController) so a hung/slow proxy can't
     // stall the call indefinitely — mirrors the desktop fetchJSON. A 502/CORS failure returns
     // or throws fast and moves on; this cap only bites when a proxy accepts the connection but
     // never responds. Worst case is timeoutMs × attempts instead of unbounded.
     const attempts = [
-      ...(HOME_MODE ? [(signal) => fetch(`/proxy?url=${encodeURIComponent(url)}`, { cache: 'no-store', signal })] : []),
+      ...(HOME_MODE ? [(signal) => fetch(`${HOME_SERVER}/proxy?url=${encodeURIComponent(url)}`, { cache: 'no-store', signal })] : []),
       (signal) => fetch(url, { cache: 'no-store', signal }),
       (signal) => fetch(`https://corsproxy.io/?${url}`, { cache: 'no-store', signal }),
       (signal) => fetch(`https://thingproxy.freeboard.io/fetch/${url}`, { cache: 'no-store', signal }),
@@ -1992,6 +2037,48 @@
     };
   }
 
+  // ── Schwab Market Data (primary price source, HOME_MODE only) ────────────
+  // Mirrors the desktop mapping (AlphaPicks Portfolio.html normaliseSchwabQuote) — see that
+  // file for the field-semantics reasoning. Only reachable when the desktop server is up
+  // (HOME_MODE), so away-mode always falls straight through to Yahoo/FMP below.
+  function normaliseSchwabQuote(sq, session) {
+    const q = sq?.quote, reg = sq?.regular, ext = sq?.extended;
+    if (!q) return null;
+    const price = reg?.regularMarketLastPrice ?? q.closePrice ?? q.mark ?? q.lastPrice;
+    if (price == null) return null;
+    const netChange = reg?.regularMarketNetChange;
+    const prevClose = (netChange != null) ? price - netChange : q.closePrice;
+    // Sanity guard: quote.closePrice has been observed to drift to a stale/rolled-over value
+    // over a weekend while regular.regularMarketLastPrice stays fixed (confirmed 2026-08-01) --
+    // if that ever produces an implausible swing, reject the whole quote rather than risk
+    // corrupting G/L, and let the caller fall through to Yahoo.
+    if (!prevClose || Math.abs((price - prevClose) / prevClose) > 0.5) return null;
+    const extValid = ext && ext.quoteTime > 0 && ext.lastPrice > 0;
+    return normaliseQuote({
+      regularMarketPrice:         price,
+      regularMarketPreviousClose: prevClose,
+      preMarketPrice:  (extValid && session === 'PRE')  ? ext.lastPrice : null,
+      postMarketPrice: (extValid && session === 'POST') ? ext.lastPrice : null,
+    });
+  }
+
+  async function fetchSchwabQuotesBatched(symbols) {
+    if (!symbols.length || !HOME_MODE) return {};
+    const session = getSessionFromClock();
+    const apiPath = `/marketdata/v1/quotes?symbols=${encodeURIComponent(symbols.join(','))}`;
+    try {
+      const resp = await fetch(`${HOME_SERVER}/schwab/api?path=${encodeURIComponent(apiPath)}`, { cache: 'no-store' });
+      if (!resp.ok) return {};
+      const data = await resp.json();
+      const out = {};
+      symbols.forEach(sym => {
+        const nq = normaliseSchwabQuote(data[sym], session);
+        if (nq) out[sym] = nq;
+      });
+      return out;
+    } catch { return {}; }
+  }
+
   async function fetchExtendedHours(ticker) {
     const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d&includePrePost=true&_cb=${Date.now()}`;
     const data = await fetchJSON(url);
@@ -2046,7 +2133,7 @@
     const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_cb=${Date.now()}`;
     const data = await fetchJSON(url);
     const meta = data?.chart?.result?.[0]?.meta;
-    if (!meta || !meta.regularMarketPrice) return null;
+    if (!meta || !meta.regularMarketPrice) { logYahooFailure(ticker); return null; }
     return normaliseQuote({
       regularMarketPrice:         meta.regularMarketPrice,
       regularMarketPreviousClose: meta.chartPreviousClose ?? meta.previousClose,
@@ -2133,16 +2220,6 @@
     } catch { return null; }
   }
 
-  async function fetchFMPExtended(symbol) {
-    try {
-      const resp = await fetch(`https://financialmodelingprep.com/stable/aftermarket-trade?symbol=${symbol}&apikey=${FMP_KEY}`, { cache: 'no-store' });
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      const q = data?.[0];
-      return (q && q.price != null) ? q : null;
-    } catch { return null; }
-  }
-
   function normaliseFMP(quote, extTrade, session) {
     const isPre  = session === 'PRE';
     const isPost = session === 'POST';
@@ -2175,33 +2252,41 @@
     const chipLabel = document.getElementById('spy-chip-label');
     const session   = getSessionFromClock();
 
-    // ── During REGULAR session: use SPY live price ────────────────────────
+    // ── During REGULAR session: use SPY live price (Schwab primary, Yahoo/FMP backup) ──
     if (session === 'REGULAR') {
       if (chipLabel) chipLabel.textContent = 'S&P 500';
+      const swQuote = (await fetchSchwabQuotesBatched(['SPY'])).SPY;
+      if (swQuote?.regularMarketChangePercent != null) {
+        const pct = swQuote.regularMarketChangePercent;
+        el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
+        return;
+      }
+      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d&formatted=false&_cb=${Date.now()}`;
+      const data = await fetchJSON(yUrl);
+      const res  = data?.chart?.result?.[0];
+      const price = res?.meta?.regularMarketPrice;
+      // Use regularMarketPreviousClose first; fall back to last completed daily candle
+      let prev = res?.meta?.regularMarketPreviousClose ?? null;
+      if (!prev) {
+        const ts = res?.timestamp ?? [], cs = res?.indicators?.quote?.[0]?.close ?? [];
+        const cutoff = Date.now() - 4 * 3600 * 1000;
+        for (let i = ts.length - 1; i >= 0; i--) { if (ts[i] * 1000 < cutoff && cs[i] != null) { prev = cs[i]; break; } }
+      }
+      if (price && prev) {
+        const pct = (price - prev) / prev * 100;
+        el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+        el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
+        return;
+      }
+      // FMP backup — Yahoo missed; still within REGULAR hours so FMP is allowed.
       const fmpQ = await fetchFMPQuote('SPY');
       if (fmpQ?.price && fmpQ?.previousClose) {
         const pct = (fmpQ.price - fmpQ.previousClose) / fmpQ.previousClose * 100;
         el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
         el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
-        return;
+        logFmpUsage(['SPY'], 'spybox-mobile-fallback');
       }
-      // Yahoo fallback for regular — use fetchJSON (proxy chain handles CORS)
-      const yUrl = `https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d&formatted=false&_cb=${Date.now()}`;
-      const data = await fetchJSON(yUrl);
-      const res  = data?.chart?.result?.[0];
-      if (!res) return;
-      const price = res.meta?.regularMarketPrice;
-      // Use regularMarketPreviousClose first; fall back to last completed daily candle
-      let prev = res.meta?.regularMarketPreviousClose ?? null;
-      if (!prev) {
-        const ts = res.timestamp ?? [], cs = res.indicators?.quote?.[0]?.close ?? [];
-        const cutoff = Date.now() - 4 * 3600 * 1000;
-        for (let i = ts.length - 1; i >= 0; i--) { if (ts[i] * 1000 < cutoff && cs[i] != null) { prev = cs[i]; break; } }
-      }
-      if (!price || !prev) return;
-      const pct = (price - prev) / prev * 100;
-      el.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
-      el.style.color  = pct >= 0 ? '#3fb950' : '#ff7b72';
       return;
     }
 
@@ -2211,18 +2296,16 @@
     if (chipLabel) chipLabel.textContent = 'S&P FUT';
     const esUrl = `https://query1.finance.yahoo.com/v8/finance/chart/ES%3DF?interval=1m&range=5d&formatted=false&_cb=${Date.now()}`;
     let esData = null;
-    // Only try the local server proxy when actually at home — in AWAY/standalone mode these
-    // localhost URLs just eat a timeout before the public-proxy chain in fetchJSON takes over.
+    // Only try the local server proxy when actually at home/reachable — in AWAY mode this
+    // would just eat a timeout before the public-proxy chain in fetchJSON takes over.
+    // (Was hardcoded to http://localhost:7843, which on a phone means the phone itself, not
+    // the desktop — always failed there regardless of HOME_MODE. HOME_SERVER is the address
+    // detectHomeMode() actually confirmed reachable.)
     if (HOME_MODE) {
-      for (const proxyUrl of [
-        `http://localhost:7843/proxy?url=${encodeURIComponent(esUrl)}`,
-        `/proxy?url=${encodeURIComponent(esUrl)}`,
-      ]) {
-        try {
-          const r = await fetch(proxyUrl, { cache: 'no-store' });
-          if (r.ok) { esData = await r.json(); break; }
-        } catch {}
-      }
+      try {
+        const r = await fetch(`${HOME_SERVER}/proxy?url=${encodeURIComponent(esUrl)}`, { cache: 'no-store' });
+        if (r.ok) esData = await r.json();
+      } catch {}
     }
     if (!esData) esData = await fetchJSON(esUrl);
     if (!esData) { el.textContent = '—'; el.style.color = '#8b949e'; return; }
@@ -2269,8 +2352,13 @@
   }
 
   // ── Intraday G/L Strip ────────────────────────────────────────────────────
+  // Generalized across all 4 position tabs (alphapicks, brokerage, ira, qgi) -- each has its
+  // own chart instance (_intradayCharts[tabId]) and its own localStorage snapshot key
+  // (todayKey + ':' + tabId). Alpha Picks keeps its original unsuffixed canvas/val element IDs
+  // for backward compat; the other 3 tabs use canvas/val IDs suffixed with the tab name.
   const _INTRADAY_LS = 'alphapicks_intraday_snaps';
-  let _intradayChart = null;
+  const _INTRADAY_TABS = ['alphapicks', 'brokerage', 'ira', 'qgi'];
+  let _intradayCharts = {};
   let _intradaySnaps = (() => { try { return JSON.parse(localStorage.getItem(_INTRADAY_LS) || '{}'); } catch { return {}; } })();
 
   function _todayKeyET() {
@@ -2287,9 +2375,9 @@
     } catch (_) {}
   }
 
-  function pushIntradaySnap(gl) {
+  function pushIntradaySnap(gl, tabId = 'alphapicks') {
     if (gl == null || !isFinite(gl)) return;
-    const key = _todayKeyET() + ':alphapicks';
+    const key = _todayKeyET() + ':' + tabId;
     if (!_intradaySnaps[key]) _intradaySnaps[key] = [];
     const arr = _intradaySnaps[key];
     if (arr.length && Date.now() - arr[arr.length - 1].t < 5000) {
@@ -2298,37 +2386,42 @@
       arr.push({ t: Date.now(), gl });
     }
     _saveIntradaySnaps();
-    renderIntradayChart();
+    renderIntradayChart(tabId);
   }
 
   async function _mergeIntradayFromStore() {
+    if (!HOME_MODE) return; // no reachable desktop server to merge from (away/offline)
     try {
-      const res = await fetch('/store', { cache: 'no-store' });
+      const res = await fetch(`${HOME_SERVER}/store`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       const raw = data[_INTRADAY_LS];
       if (!raw) return;
       const stored = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const todayKey = _todayKeyET();
-      let changed = false;
+      const changedTabs = new Set();
       for (const [k, pts] of Object.entries(stored)) {
-        if (!k.startsWith(todayKey + ':alphapicks')) continue;
-        if (!_intradaySnaps[k]) { _intradaySnaps[k] = pts; changed = true; continue; }
+        if (!k.startsWith(todayKey + ':')) continue;
+        const tabId = k.slice((todayKey + ':').length);
+        if (!_INTRADAY_TABS.includes(tabId)) continue;
+        if (!_intradaySnaps[k]) { _intradaySnaps[k] = pts; changedTabs.add(tabId); continue; }
         const localTs = new Set(_intradaySnaps[k].map(p => p.t));
         const newPts = pts.filter(p => !localTs.has(p.t));
         if (newPts.length) {
           _intradaySnaps[k] = [..._intradaySnaps[k], ...newPts].sort((a, b) => a.t - b.t);
-          changed = true;
+          changedTabs.add(tabId);
         }
       }
-      if (changed) renderIntradayChart();
+      changedTabs.forEach(tabId => renderIntradayChart(tabId));
     } catch (_) {}
   }
   setInterval(_mergeIntradayFromStore, 120000);
 
-  function renderIntradayChart() {
+  function renderIntradayChart(tabId = 'alphapicks') {
     if (typeof Chart === 'undefined') return;
-    const canvas = document.getElementById('intraday-canvas');
+    const canvasId = tabId === 'alphapicks' ? 'intraday-canvas' : `intraday-canvas-${tabId}`;
+    const valId    = tabId === 'alphapicks' ? 'intraday-val'    : `intraday-val-${tabId}`;
+    const canvas = document.getElementById(canvasId);
     if (!canvas) return;
 
     const nowUTC   = new Date();
@@ -2343,15 +2436,17 @@
     const xMax   = etHourMs(16);
     const xRight = Math.min(Math.max(xMax, nowUTC.getTime()), etHourMs(20));
 
-    const snaps = _intradaySnaps[todayKey + ':alphapicks'] || [];
+    const snaps = _intradaySnaps[todayKey + ':' + tabId] || [];
 
-    const valEl = document.getElementById('intraday-val');
+    const valEl = document.getElementById(valId);
     const curGL = snaps.length ? snaps[snaps.length - 1].gl : null;
-    if (curGL != null) {
-      valEl.textContent = `${curGL >= 0 ? '+' : '-'}$${Math.round(Math.abs(curGL)).toLocaleString('en-US')}`;
-      valEl.style.color = curGL >= 0 ? '#3fb950' : '#ff7b72';
-    } else {
-      valEl.textContent = '—'; valEl.style.color = '#484f58';
+    if (valEl) {
+      if (curGL != null) {
+        valEl.textContent = `${curGL >= 0 ? '+' : '-'}$${Math.round(Math.abs(curGL)).toLocaleString('en-US')}`;
+        valEl.style.color = curGL >= 0 ? '#3fb950' : '#ff7b72';
+      } else {
+        valEl.textContent = '—'; valEl.style.color = '#484f58';
+      }
     }
 
     const GAP_MS = 12 * 60 * 1000;
@@ -2364,15 +2459,16 @@
     const _segLine = ctx => (ctx.p1?.parsed?.y ?? 0) < 0 ? 'rgb(255,123,114)' : 'rgb(63,185,80)';
     const _segFill = ctx => (ctx.p1?.parsed?.y ?? 0) < 0 ? 'rgba(255,123,114,0.15)' : 'rgba(63,185,80,0.15)';
 
-    if (_intradayChart) {
-      _intradayChart.data.datasets[0].data = pts;
-      _intradayChart.options.scales.x.max  = xRight;
-      _intradayChart.update('none');
+    const existingChart = _intradayCharts[tabId];
+    if (existingChart) {
+      existingChart.data.datasets[0].data = pts;
+      existingChart.options.scales.x.max  = xRight;
+      existingChart.update('none');
       return;
     }
 
     const ctx = canvas.getContext('2d');
-    _intradayChart = new Chart(ctx, {
+    _intradayCharts[tabId] = new Chart(ctx, {
       type: 'line',
       data: { datasets: [{
         label: 'Day G/L', data: pts,
@@ -2457,6 +2553,7 @@
     const datasets = [
       { data: _lastBrokData, listId: 'brokerage-list', barId: 'brok-total-bar' },
       { data: _lastIraData,  listId: 'ira-list',       barId: 'ira-total-bar'  },
+      { data: _lastQgiData,  listId: 'qgi-list',        barId: 'qgi-total-bar'  },
     ];
 
     // Collect unique live-price tickers across both tabs (skip HGI/private)
@@ -2464,30 +2561,83 @@
     const tickers = [...new Set(allPos.filter(p => !p.hgi && p.symbol).map(p => p.symbol))];
     if (!tickers.length) return;
 
-    // Parallel FMP fetch for all tickers
-    const quotes  = await Promise.all(tickers.map(fetchFMPQuote));
-    const qMap    = {};
-    tickers.forEach((t, i) => { if (quotes[i]) qMap[t] = quotes[i]; });
+    const session = getSessionFromClock();
+    // Same PRE/AH fetch as the Alpha Picks tab (fetchPrices) -- CLOSED still needs the frozen
+    // last post-market trade; only skip extended-hours calls during REGULAR when meaningless.
+    const isExt = session !== 'REGULAR';
+    const qMap = {};
+
+    // Schwab Market Data primary (HOME_MODE only, one call, same OAuth token as positions).
+    Object.assign(qMap, await fetchSchwabQuotesBatched(tickers));
+
+    // Yahoo fallback for anything Schwab missed (or away mode). Yahoo's v7 batch quote endpoint
+    // requires auth (401 as of 2026-07-27) so it's skipped entirely rather than wasting a round
+    // trip on it, same as the desktop app.
+    const stillNeeded = tickers.filter(t => !qMap[t]);
+    const fallbacks = await Promise.all(stillNeeded.map(fetchTickerChart));
+    stillNeeded.forEach((t, i) => { if (fallbacks[i]) qMap[t] = fallbacks[i]; });
+
+    // FMP backup — ONLY for tickers Schwab+Yahoo both missed, and ONLY during REGULAR hours. FMP's free
+    // tier is 250 calls/day total (confirmed 2026-07-30); this refresh firing on every
+    // 10-60 min auto-schedule tick regardless of session used to be a major FMP consumer.
+    const missingQuote = tickers.filter(t => !qMap[t]);
+    if (missingQuote.length && session === 'REGULAR') {
+      const fmpQuotes = await Promise.all(missingQuote.map(fetchFMPQuote));
+      const fmpUsed = [];
+      missingQuote.forEach((t, i) => {
+        if (fmpQuotes[i]) { qMap[t] = normaliseFMP(fmpQuotes[i], null, session); fmpUsed.push(t); }
+      });
+      logFmpUsage(fmpUsed, 'brokira-fallback');
+    }
     if (!Object.keys(qMap).length) return;
 
-    const session = getSessionFromClock();
+    // FMP's aftermarket-trade endpoint often has nothing outside active extended-hours windows
+    // (e.g. weekends) -- fall back to Yahoo's chart API for the frozen last post-market candle,
+    // exactly like fetchPrices does for Alpha Picks. Without this, PRE/AH silently never shows
+    // whenever FMP alone comes up empty.
+    if (isExt) {
+      const needsExtFallback = tickers.filter(t => {
+        const q = qMap[t]; if (!q) return false;
+        return session === 'PRE' ? q.preMarketPrice == null : q.postMarketPrice == null;
+      });
+      if (needsExtFallback.length) {
+        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        needsExtFallback.forEach((t, i) => {
+          const ext = extResults[i];
+          if (ext && qMap[t]) {
+            qMap[t].preMarketPrice          = ext.preMarketPrice;
+            qMap[t].preMarketChange         = ext.preMarketChange;
+            qMap[t].preMarketChangePercent  = ext.preMarketChangePercent;
+            qMap[t].postMarketPrice         = ext.postMarketPrice;
+            qMap[t].postMarketChange        = ext.postMarketChange;
+            qMap[t].postMarketChangePercent = ext.postMarketChangePercent;
+          }
+        });
+      }
+    }
 
     const patchPos = positions => positions.map(pos => {
       const q = qMap[pos.symbol];
       if (!q) return pos;
-      const price    = q.price;
-      const mktVal   = price * (pos.shares || 0);
-      // Day % — use regularMarketChangePercent from FMP when available, else derive
-      const dayPct   = q.changesPercentage != null ? q.changesPercentage
-                     : q.previousClose              ? (price - q.previousClose) / q.previousClose * 100
-                     : null;
-      return { ...pos, currentPrice: price, mktVal, dayPct };
+      // postMarketPrice checked on field presence alone (not gated to isPost) so the frozen
+      // last trade keeps showing through CLOSED and the early-PRE gap -- matches fetchPrices.
+      const price    = q.isPre && q.preMarketPrice != null ? q.preMarketPrice
+                     : q.postMarketPrice != null ? q.postMarketPrice
+                     : q.regularMarketPrice;
+      const priceTag = q.isPre && q.preMarketPrice != null ? 'PRE'
+                     : q.postMarketPrice != null ? 'AH' : null;
+      if (!price) return pos;
+      const mktVal = price * (pos.shares || 0);
+      const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
+      const ref        = q.regularMarketPrice;
+      const dayPct     = isExtHours && ref ? (price - ref) / ref * 100 : q.regularMarketChangePercent;
+      return { ...pos, currentPrice: price, mktVal, dayPct, priceTag };
     });
 
     datasets.forEach(({ data, listId, barId }) => {
       if (!data?.positions?.length) return;
       const patched = patchPos(data.positions);
-      renderAccountCards(listId, barId, patched, data.irrRate, data.spyIrrRate, data.spySimRet);
+      renderAccountCards(listId, barId, patched, data.irrRate, data.spyIrrRate, data.spySimRet, data.benchIrrRate, data.benchSimRet);
     });
   }
 
@@ -2502,31 +2652,28 @@
     // CLOSED (evening + weekend) still needs the frozen last post-market trade fetched —
     // only skip extended-hours calls during REGULAR, when they're meaningless.
     const isExt   = session !== 'REGULAR';
-    const [fmpQuotes, fmpExtended] = await Promise.all([
-      Promise.all(tickers.map(fetchFMPQuote)),
-      isExt ? Promise.all(tickers.map(fetchFMPExtended)) : Promise.resolve(tickers.map(() => null))
-    ]);
     const quoteMap = {};
-    tickers.forEach((t, i) => { if (fmpQuotes[i]) quoteMap[t] = normaliseFMP(fmpQuotes[i], fmpExtended[i], session); });
 
+    // Schwab Market Data primary (HOME_MODE only, one call, same OAuth token as positions).
+    Object.assign(quoteMap, await fetchSchwabQuotesBatched(tickers));
+
+    // Yahoo fallback for anything Schwab missed (or away mode). Yahoo's v7 batch quote endpoint
+    // requires auth (401 as of 2026-07-27) so it's skipped entirely, same as the desktop app.
+    const stillNeededP = tickers.filter(t => !quoteMap[t]);
+    const fallbacks = await Promise.all(stillNeededP.map(fetchTickerChart));
+    stillNeededP.forEach((t, i) => { if (fallbacks[i]) quoteMap[t] = fallbacks[i]; });
+
+    // FMP backup — ONLY for tickers Schwab+Yahoo both missed, and ONLY during REGULAR hours. FMP's free
+    // tier is 250 calls/day total (confirmed 2026-07-30); this used to fire for every ticker
+    // on every auto-refresh tick regardless of session.
     const missing = tickers.filter(t => !quoteMap[t]);
-    if (missing.length) {
-      // Try Yahoo v7 direct first (has CORS headers), then via codetabs proxy
-      const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${missing.join(',')}&formatted=false&_cb=${Date.now()}`;
-      let quoteData = null;
-      try {
-        const r = await fetch(yahooUrl, { cache: 'no-store' });
-        if (r.ok) quoteData = await r.json();
-      } catch {}
-      if (!quoteData) {
-        quoteData = await fetchJSON(yahooUrl);
-      }
-      (quoteData?.quoteResponse?.result ?? []).forEach(q => { quoteMap[q.symbol] = normaliseQuote(q); });
-      const stillMissing = missing.filter(t => !quoteMap[t]);
-      if (stillMissing.length) {
-        const fallbacks = await Promise.all(stillMissing.map(fetchTickerChart));
-        stillMissing.forEach((t, i) => { if (fallbacks[i]) quoteMap[t] = fallbacks[i]; });
-      }
+    if (missing.length && session === 'REGULAR') {
+      const fmpQuotes = await Promise.all(missing.map(fetchFMPQuote));
+      const fmpUsed = [];
+      missing.forEach((t, i) => {
+        if (fmpQuotes[i]) { quoteMap[t] = normaliseFMP(fmpQuotes[i], null, session); fmpUsed.push(t); }
+      });
+      logFmpUsage(fmpUsed, 'alphapicks-mobile-fallback');
     }
 
     if (isExt) {
@@ -2604,7 +2751,10 @@
       const gain   = value - cost;
       const pps      = cost / shares;
       const priceColor = price > pps ? '#3fb950' : price < pps ? '#ff7b72' : '#8b949e';
-      const pct    = (gain / cost) * 100;
+      // % denominator: total capital ever deployed (grossBuys, shipped from desktop), not the
+      // raw remaining cost -- matches desktop's loadIRRData fix (BSM/IRA "+1268%" bug).
+      const glBasis = parseFloat(row.dataset.grossBuys) || cost;
+      const pct    = glBasis ? (gain / glBasis) * 100 : 0;
       totalValue  += value; updatedCount++;
 
       const isGain = gain >= 0, sign = isGain ? '+' : '-';
@@ -2766,7 +2916,6 @@
     fetchUsdIls();
     refreshBrokIraPrices();  // live prices for Brokerage + IRA regardless of sync age
     checkBuyCallReminder();
-    checkDailyLog();
     checkDivAlerts();
 
     // Schedule next auto-refresh: sync from cloud then re-fetch prices
@@ -2882,8 +3031,6 @@
     syncFromCloud().then(() => {
       fetchPrices(); // always re-run after sync so fresh synced dayPct values feed the portfolio total
       _mergeIntradayFromStore();
-      scheduleDailyLog();
-      setInterval(checkDailyLog, 60 * 1000);
     });
   });
   // ── Pull-to-refresh ───────────────────────────────────────────────────────
@@ -2918,7 +3065,7 @@
   (function() {
     // Visual tab order (left → right): Brokerage | Retirement | Alpha Picks | Allocation
     // Circular: swiping right on Allocation wraps back to Brokerage
-    const TABS = ['brokerage','ira','alphapicks','allocation'];
+    const TABS = ['brokerage','ira','alphapicks','qgi','allocation'];
     let sx = 0, sy = 0;
     document.addEventListener('touchstart', e => {
       sx = e.touches[0].clientX;

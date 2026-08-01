@@ -474,11 +474,14 @@
     .brok-table-wrap { overflow-x: auto; border: 1px solid #30363d; border-radius: 12px; }
     .tag-btn {
       background: transparent; border: none; font-size: 1.05rem;
-      cursor: pointer; color: #8b949e; padding: 0.1rem 0.3rem;
+      cursor: pointer; color: #8b949e; padding: 0.1rem 0.18rem;
       transition: color 0.15s;
     }
     .tag-btn:hover  { color: #e6edf3; }
     .tag-btn.tagged { color: #e3b341; }
+    /* QG&I marker (Quant Growth & Income) — teal diamond, coexists with the gold star */
+    .tag-btn.qgi        { font-size: 0.95rem; }
+    .tag-btn.qgi.tagged { color: #2dd4bf; }
     .brok-empty {
       text-align: center; padding: 4rem 2rem;
       color: #8b949e; font-size: 0.9rem; line-height: 1.8;
@@ -622,7 +625,7 @@
       <div class="as-of">Revision as of <span id="revision-date"></span></div>
       <div class="pulse loading" id="pulse" style="margin-left:.25rem"></div>
       <span id="refresh-label" style="font-size:.75rem;color:#8b949e">Loading prices…</span>
-      <button onclick="openPortfolioChart()" title="Portfolio value history" style="margin-left:.5rem;background:transparent;border:1px solid #30363d;border-radius:6px;padding:3px 9px;color:#8b949e;font-size:0.75rem;cursor:pointer;line-height:1.4" onmouseover="this.style.color='#e6edf3'" onmouseout="this.style.color='#8b949e'">📈 History</button>
+      <button onclick="openPortfolioChart(activeTabId())" title="Portfolio value history" style="margin-left:.5rem;background:transparent;border:1px solid #30363d;border-radius:6px;padding:3px 9px;color:#8b949e;font-size:0.75rem;cursor:pointer;line-height:1.4" onmouseover="this.style.color='#e6edf3'" onmouseout="this.style.color='#8b949e'">📈 History</button>
     </div>
     <script>
       document.getElementById('revision-date').textContent =
@@ -673,6 +676,7 @@
   <button class="tab-btn" id="tab-btn-brokerage"  onclick="switchTab('brokerage')">Brokerage</button>
   <button class="tab-btn" id="tab-btn-ira"         onclick="switchTab('ira')">Retirement</button>
   <button class="tab-btn active" id="tab-btn-alphapicks" onclick="switchTab('alphapicks')">Alpha Picks</button>
+  <button class="tab-btn" id="tab-btn-qgi" onclick="switchTab('qgi')">QG&amp;I</button>
   <button class="tab-btn" id="tab-btn-allocation" onclick="switchTab('allocation')">Allocation</button>
 </div>
 
@@ -702,7 +706,7 @@
           <colgroup>
             <col style="width:42px">   <!-- # -->
             <col style="width:90px">   <!-- Buy Date -->
-            <col style="width:82px">   <!-- Ticker -->
+            <col style="width:132px">  <!-- Ticker (badge + ★ + ◆ toggles need room) -->
             <col style="width:230px">  <!-- Name -->
             <col style="width:76px">   <!-- Shares -->
             <col style="width:90px">   <!-- Avg Cost -->
@@ -882,6 +886,67 @@
 </div>
 </div><!-- /tab-alphapicks -->
 
+<!-- ── Tab: Quant Growth & Income (QG&I) ─────────────────────── -->
+<div id="tab-qgi" class="tab-pane">
+<div style="max-width:1500px;margin:2rem auto;padding:0 1.5rem 3rem;">
+  <div class="sync-bar">
+    <span class="section-title">Quant Growth &amp; Income</span>
+    <button class="refresh-btn" onclick="printLedgerReport('qgi')" title="Print QG&amp;I cash flow ledger & IRR">📒 Ledger</button>
+    <button class="refresh-btn" onclick="printGroupAudit('qgi')" title="Print full snapshot of current QG&amp;I state">Print Audit</button>
+    <button class="refresh-btn" id="mock-txn-btn-qgi" onclick="toggleMockPanel('qgi')" title="Add mock sell transactions to test sold-position XIRR" style="color:#f0883e">🧪 Mock Txns</button>
+    <div style="flex:1"></div>
+    <button class="refresh-btn full-refresh-btn" onclick="fullRefresh()">↻ Refresh</button>
+    <button class="refresh-btn" id="irr-qgi-audit-btn" onclick="printIRRAudit('qgi')" style="display:none">IRR Audit</button>
+    <button class="refresh-btn" id="bench-qgi-audit-btn" onclick="printSPYAudit('qgi')" style="display:none">Benchmark Audit</button>
+    <button class="refresh-btn" onclick="exportLog('qgi')" title="Export full history to Excel">Export Log</button>
+    <span class="sync-label" id="qgi-sync-label"></span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <colgroup>
+        <col style="width:42px">   <!-- # -->
+        <col style="width:90px">   <!-- Buy Date -->
+        <col style="width:82px">   <!-- Ticker -->
+        <col style="width:230px">  <!-- Name -->
+        <col style="width:76px">   <!-- Shares -->
+        <col style="width:90px">   <!-- Avg Cost -->
+        <col style="width:100px">  <!-- Net Invested -->
+        <col style="width:100px">  <!-- Current Price -->
+        <col style="width:100px">  <!-- Mkt Value -->
+        <col style="width:110px">  <!-- Gain / Loss -->
+        <col style="width:90px">   <!-- Actions -->
+        <col style="width:82px">   <!-- True IRR -->
+        <col style="width:68px">   <!-- Weight -->
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="center">#</th>
+          <th class="right">Buy Date</th>
+          <th>Ticker</th>
+          <th>Name</th>
+          <th class="right">Shares</th>
+          <th class="right">Avg Cost</th>
+          <th class="right">Net Invested</th>
+          <th class="right">Current Price</th>
+          <th class="right">Mkt Value</th>
+          <th class="right">Gain / Loss</th>
+          <th></th>
+          <th class="right">True IRR</th>
+          <th class="right">Weight</th>
+        </tr>
+      </thead>
+      <tbody id="qgi-tbody">
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="footer">
+  Quant Growth &amp; Income &bull; Benchmark: S&amp;P 500 (SPY) &amp; Vanguard High Dividend Yield (VYM) &bull; Prices via Yahoo Finance
+</div>
+</div><!-- /tab-qgi -->
+
 <!-- ── Tab: Asset Allocation ─────────────────────────────────── -->
 <div id="tab-allocation" class="tab-pane">
   <div style="max-width:98vw;margin:2rem auto;padding:0 1.5rem 3rem;">
@@ -955,6 +1020,39 @@
   // Central store sync — keeps all devices in sync via server store.json
   const _STORE_BASE = window.location.protocol === 'file:' ? 'http://localhost:7843' : window.location.origin;
   const _STORE_SKIP = new Set(['alphapicks_log_pending']); // transient keys, don't sync
+
+  // Best-effort report of every time FMP got used as a Yahoo-miss backup, so real-world call
+  // volume after the Yahoo-primary/FMP-backup change (2026-07-30) can be measured instead of
+  // estimated -- see Write-FmpUsage / fmp_usage.log in schwab_server.ps1. Never awaited, never
+  // blocks or affects the caller's own price fetch.
+  function logFmpUsage(symbols, context) {
+    if (!symbols || !symbols.length) return;
+    try {
+      fetch(`${_STORE_BASE}/fmp-usage-log`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ symbols, context }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
+
+  // Best-effort report of every time Yahoo's v8 chart (through fetchTickerChart's own full
+  // fallback chain -- local proxy, direct, corsproxy.io, thingproxy, codetabs) came back with no
+  // usable price at all. Added 2026-08-01 after discovering FMP can only actually serve ~5 of
+  // our ~60 real holdings on the current plan (402 "not available under your current
+  // subscription" for everything else) -- Yahoo is the only real source for most positions, so
+  // "positions not updating" is almost certainly a Yahoo-reliability question, and there was no
+  // visibility into that at all before this. Never awaited, never blocks the caller.
+  function logYahooFailure(symbol) {
+    if (!symbol) return;
+    try {
+      fetch(`${_STORE_BASE}/yahoo-failure-log`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ symbol }),
+      }).catch(() => {});
+    } catch (_) {}
+  }
   const _origSetItem = localStorage.setItem.bind(localStorage);
   const _origRemoveItem = localStorage.removeItem.bind(localStorage);
   let _lastStoreSyncErrorToast = 0;
@@ -1327,9 +1425,18 @@
     return parts.length ? parts.join(' · ') : 'No dividend dates on record.';
   }
 
+  // Rows eligible for dividend alerts: Alpha Picks + QG&I (both use the shared bell-btn row
+  // template from renderGroupFromSchwab). Deliberately NOT the same as the global `rows`/`tickers`
+  // vars from syncRows() -- those are scoped to Alpha Picks only and feed many OTHER Alpha-Picks-
+  // specific computations (fetchPrices' own price refresh, allocation charts, ticker dropdowns).
+  // Broadening THOSE globals to include QG&I would leak QG&I rows into that unrelated logic.
+  function alertEligibleRows() {
+    return [...document.querySelectorAll('#picks-tbody tr[data-ticker], #qgi-tbody tr[data-ticker]')];
+  }
+
   function syncBellStates() {
     const allAlerts = JSON.parse(localStorage.getItem('alphapicks_div_alerts') || '{}');
-    rows.forEach(row => {
+    alertEligibleRows().forEach(row => {
       const bell = row.querySelector('.bell-btn');
       if (bell) bell.classList.toggle('alert-on', !!(allAlerts[row.dataset.ticker]?.enabled));
     });
@@ -1622,6 +1729,15 @@
       const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       const dateStr = `${String(etNow.getDate()).padStart(2,'0')}-${MON[etNow.getMonth()]}-${etNow.getFullYear()}`;
       const dateKey = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
+      // Only checkDailyLog() (the automatic 4:05 PM trigger) used to guard against weekends/
+      // holidays — exportLog()'s manual capture path had no such check, so clicking Export Log
+      // on a non-trading day (e.g. a Saturday, viewing from a timezone where it's still Friday
+      // evening in ET) would fabricate a phantom entry for a day the market never traded.
+      const dow = etNow.getDay();
+      if (dow === 0 || dow === 6 || usMarketHolidays(etNow.getFullYear()).has(dateKey)) {
+        console.log('[Log] captureLogEntry skipped — not a trading day:', dateKey);
+        return;
+      }
       const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
       const isToday = e => e.date === dateStr || e._key === dateKey || e.date === dateKey;
       if (raw.some(isToday) && !force) return;
@@ -1680,6 +1796,7 @@
         brokerage:  captureTab('brokerage',  '#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol]'),
         ira:        captureTab('ira',         '#ira-tbody tr[data-symbol]'),
         alphapicks: captureTab('alphapicks',  '#picks-tbody tr[data-ticker]'),
+        qgi:        captureTab('qgi',         '#qgi-tbody tr[data-ticker]'),
       };
 
       log.unshift(entry);
@@ -1717,9 +1834,18 @@
     if (!pricesLoadedToday)                  { console.log('[Log] skip: awaiting fresh price fetch'); return; }
     // Capture once per trading day — do NOT overwrite with later AH prices
     if (logCapturedToday === dateKey)        { console.log('[Log] skip: already captured today'); return; }
+    // logCapturedToday only survives within this page session — on its own, a refresh after
+    // today's real capture would force a redundant recapture (and re-show the "Daily log
+    // captured" toast) on every subsequent reload. Check the persisted log too.
+    const alreadyLogged = JSON.parse(localStorage.getItem('alphapicks_log') || '[]')
+      .some(e => e._key === dateKey || e.date === dateKey);
+    if (alreadyLogged) { console.log('[Log] skip: already logged today (persisted)'); logCapturedToday = dateKey; return; }
     logCapturedToday = dateKey;
     captureLogEntry(true); // force=true — replace any stale earlier entry for today
     localStorage.setItem('alphapicks_log_pending', dateKey); // mark as pending Excel save
+    // Server push is the primary save path (no browser-permission dependency); autoSaveLog's
+    // client-side File System Access write runs alongside it as a harmless redundant attempt.
+    pushLogToServer().then(ok => { if (ok) { localStorage.removeItem('alphapicks_log_pending'); localStorage.removeItem('alphapicks_log_pending_alerted'); } });
     autoSaveLog(); // try to write Excel immediately; clears pending flag on success
   }
 
@@ -1916,10 +2042,10 @@
         for (let C = 1; C <= wsRange.e.c; C++) {
           const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
           if (!cell) continue;
-          if (C <= 4)                               cell.z = '$#,##0.00';
+          if (C <= 4)                               cell.z = '$#,##0';
           else if (C <= 8)                          cell.z = '0.00"%"';
           else if (nExtra > 0 && C === 9)           cell.z = '0.000';   // USD/ILS
-          else                                      cell.z = '$#,##0.00';
+          else                                      cell.z = '$#,##0';
         }
       }
       return ws;
@@ -1929,6 +2055,7 @@
     XLSX.utils.book_append_sheet(wb, buildSheet('brokerage',  []),                              'Brokerage');
     XLSX.utils.book_append_sheet(wb, buildSheet('ira',        []),                              'Retirement');
     XLSX.utils.book_append_sheet(wb, buildSheet('alphapicks', [{ key: 'usdils', label: 'USD/ILS' }]), 'Alpha Picks');
+    XLSX.utils.book_append_sheet(wb, buildSheet('qgi',        []),                              'QG&I');
     return wb;
   }
 
@@ -1956,6 +2083,7 @@
       await wr.write(new Blob([buf]));
       await wr.close();
       localStorage.removeItem('alphapicks_log_pending'); // clear pending flag
+      localStorage.removeItem('alphapicks_log_pending_alerted');
       console.log('[Log] auto-saved Excel file to stored location');
       return true;
     } catch (e) {
@@ -1964,12 +2092,48 @@
     }
   }
 
-  // Shows a reminder toast (once per session) if a log entry was captured but not yet saved to Excel.
+  // Push today's captured entry to the server so it writes the xlsx itself (same POST body
+  // exportLog sends, minus the download-link convenience). autoSaveLog()'s client-side File
+  // System Access write depends on a browser permission/file-handle that keeps going stale
+  // (confirmed 2026-07-31: repeatedly needed re-granting after the underlying file got
+  // recreated), silently leaving the real file un-updated for days at a time even though the
+  // captured data itself made it into store.json via the generic localStorage sync. This path
+  // has no such dependency -- the server writes the file directly -- so it's now the primary
+  // mechanism for the daily automatic save; autoSaveLog stays as a harmless redundant attempt.
+  async function pushLogToServer() {
+    try {
+      const fullLog = migrateLog(JSON.parse(localStorage.getItem('alphapicks_log') || '[]'));
+      if (!fullLog.length) return false;
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      const r = await fetch(`${_STORE_BASE}/auto-log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry: fullLog[0], fullLog }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!r.ok) return false;
+      const data = await r.json();
+      return !!data.ok;
+    } catch (e) {
+      console.warn('[Log] server push failed:', e);
+      return false;
+    }
+  }
+
+  // Shows a reminder toast if a log entry was captured but not yet saved to Excel.
+  // pendingToastShown alone only dedupes within one page session — it resets on every refresh,
+  // so if auto-save keeps failing (e.g. File System Access permission not re-granted this
+  // session), the same day's reminder would otherwise reappear on every single refresh. Persist
+  // which pending date we've already alerted for so it only fires once per occurrence.
   let pendingToastShown = false;
   function checkPendingLogSave() {
     if (pendingToastShown) return;
     const pending = localStorage.getItem('alphapicks_log_pending');
     if (!pending) return;
+    if (localStorage.getItem('alphapicks_log_pending_alerted') === pending) { pendingToastShown = true; return; }
+    localStorage.setItem('alphapicks_log_pending_alerted', pending);
     pendingToastShown = true;
     const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const [y, m, d] = pending.split('-');
@@ -1982,6 +2146,99 @@
       <span class="div-toast-body"><strong>Log captured (${dateDisp})</strong> — not yet saved to Excel. Click <a href="#" onclick="exportLog();return false;" style="color:#79c0ff;text-decoration:underline">Export Log</a> or interact with the page to auto-save.</span>
       <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
     c.appendChild(toast);
+  }
+
+  // Shows a warning toast if the server's unattended auto-log run had to skip writing a
+  // snapshot because a price source (FMP quota, Yahoo fallback) was too degraded to trust —
+  // see Write-PriceAlert in schwab_server.ps1. That path only ever runs with no browser open,
+  // so this is the only place the desktop app itself can surface it; dedupe on the alert's own
+  // timestamp so it only shows once per occurrence, not on every reload.
+  async function checkPriceSourceAlert() {
+    try { await window._storeReady; } catch (_) {}
+    let alert;
+    try { alert = JSON.parse(localStorage.getItem('price_source_alert') || 'null'); } catch (_) { return; }
+    if (!alert || !alert.ts) return;
+    if (localStorage.getItem('price_source_alert_seen') === String(alert.ts)) return;
+    localStorage.setItem('price_source_alert_seen', String(alert.ts));
+    const c = document.getElementById('div-toasts');
+    const toast = document.createElement('div');
+    toast.className = 'div-toast log';
+    toast.style.cssText = 'border-left-color:#d29922';
+    toast.innerHTML = `
+      <span class="div-toast-icon">⚠️</span>
+      <span class="div-toast-body"><strong>Price data degraded</strong> — an unattended log capture skipped itself (only ${alert.pricedCount}/${alert.totalCount} symbols priced, likely an FMP quota limit). No bad data was written, but check your FMP plan usage if this keeps happening.</span>
+      <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+    c.appendChild(toast);
+  }
+
+  // Once-per-day toast reporting today's total FMP call count (server-tallied from
+  // fmp_usage.log) and whether it exceeded the 250/day free-tier limit — see the 2026-07-30
+  // Yahoo-primary/FMP-backup change.
+  //
+  // Dedup is server-authoritative (the /fmp-usage-summary response's alreadyShown flag, backed
+  // by store.json), not just a local flag: the dashboard is reachable from several distinct
+  // origins (localhost, LAN IP, Tailscale IP), each with its own separate localStorage, so a
+  // purely client-side flag showed the toast once per origin visited that day -- confirmed
+  // 2026-08-01 (three duplicate toasts). The localStorage flag below is now just a same-tab
+  // fast-path to skip a redundant network call, not the source of truth.
+  async function checkDailyFmpUsage() {
+    const etStr  = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const etNow  = new Date(etStr);
+    const todayKey = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
+    if (localStorage.getItem('fmp_daily_toast_date') === todayKey) return;
+    localStorage.setItem('fmp_daily_toast_date', todayKey); // same-tab fast path only
+    let data;
+    try {
+      const r = await fetch(`${_STORE_BASE}/fmp-usage-summary`, { cache: 'no-store' });
+      if (!r.ok) return;
+      data = await r.json();
+    } catch (_) { return; }
+    if (data.alreadyShown) return; // another origin/tab already claimed today's toast
+    const over = data.overLimit;
+    const c = document.getElementById('div-toasts');
+    const toast = document.createElement('div');
+    toast.className = 'div-toast log';
+    if (over) toast.style.cssText = 'border-left-color:#ff7b72';
+    toast.innerHTML = `
+      <span class="div-toast-icon">${over ? '🔴' : '📊'}</span>
+      <span class="div-toast-body"><strong>FMP usage today: ${data.totalCalls}/${data.limit}</strong>${over ? ' — over your daily limit!' : ''}</span>
+      <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+    c.appendChild(toast);
+  }
+
+  // Periodic forced-FMP quality check (2026-08-01): Yahoo carries 100% of the primary refresh
+  // load now (it used to only handle FMP's overflow), and it can return a stale-but-valid-
+  // looking cached quote under that load with no error and no "miss" for the FMP-backup path to
+  // catch. Originally meant to cross-check every symbol, but testing every real holding directly
+  // against FMP (2026-08-01) found the current plan tier only serves these 5 via /stable/quote —
+  // everything else 402s "not available under your current subscription" regardless of Yahoo's
+  // priority order, so there's no point spending budget on guaranteed failures. Revisit this set
+  // if the FMP plan changes. At ~5 symbols x 3 checkpoints/day this costs ~15 calls/day, not the
+  // originally-estimated 186 — cheap, but only actually verifies these 5 positions' freshness.
+  const FMP_COVERED_SYMBOLS = new Set(['GM', 'MSFT', 'SPY', 'CVX', 'XOM']);
+  const FMP_QUALITY_CHECKPOINTS = [
+    { key: 'pre',     hour: 8,  min: 0  },
+    { key: 'regular', hour: 12, min: 45 },
+    { key: 'post',    hour: 18, min: 0  },
+  ];
+  async function checkFmpQualityCheckpoint() {
+    const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
+    const etNow = new Date(etStr);
+    const dow = etNow.getDay();
+    if (dow === 0 || dow === 6) return; // weekend — nothing to check
+    const dateKey = `${etNow.getFullYear()}-${String(etNow.getMonth()+1).padStart(2,'0')}-${String(etNow.getDate()).padStart(2,'0')}`;
+    if (usMarketHolidays(etNow.getFullYear()).has(dateKey)) return;
+    const nowMins = etNow.getHours() * 60 + etNow.getMinutes();
+    for (const cp of FMP_QUALITY_CHECKPOINTS) {
+      if (nowMins < cp.hour * 60 + cp.min) continue; // this checkpoint hasn't arrived yet today
+      const flagKey = `fmp_quality_check_${cp.key}_date`;
+      if (localStorage.getItem(flagKey) === dateKey) continue; // already done today
+      localStorage.setItem(flagKey, dateKey); // claim before awaiting (same race-safety as other daily checks)
+      console.log(`[FMP quality check] running ${cp.key} checkpoint`);
+      await fetchPrices(true);
+      await refreshBrokeragePrices(true);
+      await refreshGroupPrices('qgi', true);
+    }
   }
 
   // On the first user click: request write permission, then auto-save any pending log entry.
@@ -2008,7 +2265,7 @@
     document.addEventListener('click', grant, true);
   }
 
-  async function exportLog() {
+  async function exportLog(group) {
     const showToast = (icon, html, err) => {
       const c = document.getElementById('div-toasts');
       const t = document.createElement('div');
@@ -2021,10 +2278,17 @@
 
     const working = showToast('⏳', '<strong>Generating Excel log…</strong>');
     try {
-      // Capture today's entry from the browser (has live prices + IRR — no server fetch needed)
+      // Capture today's entry from the browser (has live prices + IRR — no server fetch needed).
+      // Only force a FRESH capture for today if today's trading day has actually closed
+      // (hour >= 16 ET, same gate checkDailyLog uses for the automatic path) -- this used to
+      // capture unconditionally at any time of day, so clicking Export Log at, say, 12:30am ET
+      // (before that day's market has even opened) stamped a bogus "today" entry using
+      // whatever stale/closed-market prices were on screen, permanently corrupting that day's
+      // record once the real close never got a chance to overwrite it (confirmed 2026-07-31).
+      // Before market close, just export whatever's already in the log.
       const _etNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
       const _today = `${_etNow.getFullYear()}-${String(_etNow.getMonth()+1).padStart(2,'0')}-${String(_etNow.getDate()).padStart(2,'0')}`;
-      if (logCapturedToday !== _today) captureLogEntry(true);
+      if (logCapturedToday !== _today && _etNow.getHours() >= 16) captureLogEntry(true);
 
       const fullLog = migrateLog(JSON.parse(localStorage.getItem('alphapicks_log') || '[]'));
 
@@ -2045,12 +2309,16 @@
       // Download the XLSX the server just wrote
       const a = document.createElement('a');
       a.href = 'http://localhost:7843/log-xlsx';
-      a.download = 'AlphaPicks_Log.xlsx';
+      a.download = '!Alpha Picks Portfolio Log.xlsx';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
 
-      showToast('💾', `<strong>Log exported</strong> — AlphaPicks_Log.xlsx (${data.date})`);
+      // A successful server-side export is just as much "saved to Excel" as the client-side
+      // auto-save path — clear the pending flags so the reminder toast doesn't keep nagging.
+      localStorage.removeItem('alphapicks_log_pending');
+      localStorage.removeItem('alphapicks_log_pending_alerted');
+      showToast('💾', `<strong>Log exported</strong> — !Alpha Picks Portfolio Log.xlsx (${data.date})`);
     } catch (e) {
       working.remove();
       showToast('⚠️', `Export failed: ${e.message || e}`, true);
@@ -2088,7 +2356,7 @@
       // — early or final — carries the last complete flows and can never ship an empty set. This
       // mirrors how tabStats persists across runs.
       if (Array.isArray(irrAuditData) && irrAuditData.length) {
-        const lg = { alphapicks: {}, brokerage: {}, ira: {} };
+        const lg = { alphapicks: {}, brokerage: {}, ira: {}, qgi: {} };
         for (const e of irrAuditData) {
           if (!e || !e.section || !e.sym || !Array.isArray(e.cashFlows)) continue;
           if (!lg[e.section]) lg[e.section] = {};
@@ -2107,6 +2375,10 @@
         company:      r.querySelector('.company-name')?.textContent?.trim() || '',
         shares:       safeFloat(r.dataset.shares),
         cost:         safeFloat(r.dataset.cost),
+        // Total capital ever deployed (set by loadIRRData as the G/L% denominator — see the
+        // BSM/IRA "+1268%" fix). Falls back to cost so mobile behaves exactly like before
+        // whenever this hasn't been computed yet (pre-loadIRRData) or a position has no sells.
+        grossBuys:    r.dataset.econGrossBuys ? safeFloat(r.dataset.econGrossBuys) : null,
         date:         r.dataset.date,
         pps:          safeFloat(r.querySelector('.pps')?.textContent?.replace(/[^0-9.]/g, '')),
         originalCost: r.dataset.originalCost ? safeFloat(r.dataset.originalCost) : null,
@@ -2120,6 +2392,27 @@
         flows:        _flowsFor('alphapicks', r.dataset.ticker),
       }));
 
+      // QG&I positions — same rich model as Alpha Picks (own tab on mobile)
+      const qgiRows = Array.from(document.querySelectorAll('#qgi-tbody tr[data-ticker]'));
+      const qgiPositions = qgiRows.map(r => ({
+        id:           r.dataset.id,
+        ticker:       r.dataset.ticker,
+        company:      r.querySelector('.company-name')?.textContent?.trim() || '',
+        shares:       safeFloat(r.dataset.shares),
+        cost:         safeFloat(r.dataset.cost),
+        grossBuys:    r.dataset.econGrossBuys ? safeFloat(r.dataset.econGrossBuys) : null,
+        date:         r.dataset.date,
+        pps:          safeFloat(r.querySelector('.pps')?.textContent?.replace(/[^0-9.]/g, '')),
+        originalCost: r.dataset.originalCost ? safeFloat(r.dataset.originalCost) : null,
+        currentPrice: r.dataset.price  ? safeFloat(r.dataset.price)
+                    : (safeFloat(r.dataset.mktVal) && safeFloat(r.dataset.shares))
+                      ? safeFloat(r.dataset.mktVal) / safeFloat(r.dataset.shares)
+                      : null,
+        mktVal:       r.dataset.mktVal ? safeFloat(r.dataset.mktVal) : null,
+        dayPct:       r.dataset.dayPct ? safeFloat(r.dataset.dayPct) : null,
+        flows:        _flowsFor('qgi', r.dataset.ticker),
+      }));
+
       // Brokerage positions (stocks + ETFs)
       const brokRows = Array.from(document.querySelectorAll('#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol]'));
       const mapRow = (r, iraMode) => ({
@@ -2131,6 +2424,7 @@
         // Schwab's raw avgCost×shares, so mobile's Invested/G-L match the desktop's economic basis
         // (SNEX/ARCC/DIVO corrections). Falls back to raw costBasis before loadIRRData has run.
         costBasis:    parseFloat(r.dataset.econCostBasis || r.dataset.costBasis || '0'),
+        grossBuys:    r.dataset.econGrossBuys ? parseFloat(r.dataset.econGrossBuys) : null,
         currentPrice: parseFloat(r.dataset.currentPrice || '0'),
         date:         r.dataset.date || '',
         dayPct:       r.dataset.dayPct ? parseFloat(r.dataset.dayPct) : null,
@@ -2154,6 +2448,7 @@
       const payload = {
         ts:              Date.now(),
         activePositions,
+        qgiPositions,
         soldRows:   JSON.parse(localStorage.getItem('alphapicks_sold_rows') || '[]'),
         sales:      JSON.parse(localStorage.getItem('alphapicks_sales')     || '[]'),
         alerts:     JSON.parse(localStorage.getItem('alphapicks_div_alerts')|| '{}'),
@@ -2170,6 +2465,11 @@
         alphaPicksIrrRate:      tabStats.alphapicks.irrRate      ?? null,
         alphaPicksSpyIrrRate:   tabStats.alphapicks.spyIrrRate   ?? null,
         alphaPicksSpySimpleRet: tabStats.alphapicks.spySimpleRet ?? null,
+        qgiIrrRate:             tabStats.qgi.irrRate             ?? null,
+        qgiSpyIrrRate:          tabStats.qgi.spyIrrRate          ?? null,
+        qgiSpySimpleRet:        tabStats.qgi.spySimpleRet        ?? null,
+        qgiBenchIrrRate:        tabStats.qgi.benchIrrRate        ?? null,
+        qgiBenchSimpleRet:      tabStats.qgi.benchSimpleRet      ?? null,
         // S&P header chip — replicated verbatim on mobile
         spyChipText:  document.querySelector('.spy-pct-box')?.textContent?.trim() || null,
         spyChipColor: document.querySelector('.spy-pct-box')?.style.color         || null,
@@ -2297,7 +2597,10 @@
 
   async function checkDivAlerts() {
     const allAlerts = JSON.parse(localStorage.getItem('alphapicks_div_alerts') || '{}');
-    const enabled = tickers.filter(t => allAlerts[t]?.enabled);
+    // Alert-eligible tickers = Alpha Picks + QG&I (see alertEligibleRows) -- NOT the global
+    // `tickers` var, which is Alpha-Picks-only and used elsewhere for unrelated calculations.
+    const alertTickers = [...new Set(alertEligibleRows().map(r => r.dataset.ticker))];
+    const enabled = alertTickers.filter(t => allAlerts[t]?.enabled);
     if (!enabled.length) return;
 
     const notified = JSON.parse(localStorage.getItem('alphapicks_notified') || '{}');
@@ -2418,7 +2721,8 @@
   // Periodically sync store keys that other devices may have changed.
   // Keys that affect rendering are acted on immediately.
   const _STORE_SYNC_KEYS = ['alphapicks_tagged','alphapicks_positions','alphapicks_sold',
-                             'alphapicks_sold_rows','alphapicks_sales','schwab_position_snapshot'];
+                             'alphapicks_sold_rows','alphapicks_sales','schwab_position_snapshot',
+                             'qgi_tagged','qgi_sold','qgi_sales','group_alloc'];
   async function _pollStore() {
     try {
       const res = await fetch(_STORE_BASE + '/store', { cache: 'no-store' });
@@ -2433,13 +2737,14 @@
         // Value changed on another device — update locally
         if (incoming === null) _origRemoveItem(key);
         else _origSetItem(key, incoming);
-        if (key === 'alphapicks_tagged') taggedChanged = true;
+        if (key === 'alphapicks_tagged' || key === 'qgi_tagged' || key === 'group_alloc') taggedChanged = true;
       }
-      // Re-render tabs if tagged list changed
+      // Re-render tabs if a tagged list / allocation changed
       if (taggedChanged && schwabAccounts && schwabAccounts.length) {
         const brokerageAccts = schwabAccounts.filter(a => !getRetirementAccountNums().includes(a.securitiesAccount?.accountNumber));
         renderBrokerageTab(brokerageAccts);
         renderAlphaPicksFromSchwab(brokerageAccts);
+        renderQGIFromSchwab(brokerageAccts);
       }
     } catch (_) {}
   }
@@ -2759,9 +3064,12 @@
     alphapicks: { title: '📈 Alpha Picks P&L', subtitle: 'Change from first investment · Alpha Picks tab' },
     brokerage:  { title: '📈 Brokerage P&L',   subtitle: 'Change from first investment · Brokerage tab'  },
     ira:        { title: '📈 Retirement P&L',   subtitle: 'Change from first investment · Retirement tab' },
+    qgi:        { title: '📈 QG&I P&L',          subtitle: 'Change from first investment · Quant Growth & Income tab' },
   };
 
   function openPortfolioChart(tabId = 'alphapicks') {
+    // Tabs without a history series (e.g. Allocation) fall back to Alpha Picks.
+    if (!CHART_TAB_META[tabId]) tabId = 'alphapicks';
     _chartTabId = tabId;
     const meta = CHART_TAB_META[tabId] ?? CHART_TAB_META.alphapicks;
     document.getElementById('chart-overlay-title').textContent    = meta.title;
@@ -2780,10 +3088,84 @@
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Capturing today…'; }
     // Seed today's live prices as the real anchor entry the backfill scales against
     captureLogEntry(true);
-    // Backfill historical data via FMP (button state managed inside the function)
-    await backfillPortfolioHistory({ silent: false });
+    // Tagged groups (QG&I) have their own focused backfill from each position's buy date.
+    if (GROUPS[tabId] && tabId !== 'alphapicks') {
+      await backfillGroupHistory(tabId);
+    } else {
+      await backfillPortfolioHistory({ silent: false }); // button state managed inside
+    }
     renderPortfolioChart(tabId);
     if (btn) { btn.disabled = false; btn.textContent = '📥 Load History'; }
+  }
+
+  // Focused history backfill for a tagged group (e.g. QG&I). Reconstructs each trading day's
+  // portfolio value = Σ (group shares × daily close) from the group's earliest buy date to
+  // today, writing an e.<group> section into the shared log. No retroactive-share scaling
+  // needed (unlike Alpha Picks) because a group's shares exist from their own buy date.
+  async function backfillGroupHistory(group) {
+    const cfg = GROUPS[group]; if (!cfg) return;
+    const rowsG = [...document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`)];
+    if (!rowsG.length) { alert('No positions to backfill yet — open the tab and let it load.'); return; }
+    const positions = rowsG.map(r => ({ sym: r.dataset.ticker, shares: parseFloat(r.dataset.shares) || 0, cost: parseFloat(r.dataset.cost) || 0 }));
+    const costBasis = positions.reduce((s, p) => s + p.cost, 0);
+
+    // Earliest buy date across the group (shared tickers use their group-allocation date).
+    const buyDates = getBuyDates(), alloc = getGroupAlloc();
+    let startDate = null;
+    positions.forEach(p => { const d = alloc[p.sym]?.[group]?.buyDate || buyDates[p.sym];
+      if (d && (!startDate || d < startDate)) startDate = d; });
+    startDate = startDate || new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Fetch daily EOD closes per ticker: FMP first, Yahoo v8 chart fallback.
+    const pricesByDate = {}; // { 'YYYY-MM-DD': { SYM: close } }
+    const store = (sym, pairs) => pairs.forEach(([dk, c]) => {
+      if (dk && c != null && !isNaN(c)) (pricesByDate[dk] ||= {})[sym] = c;
+    });
+    const s1 = Math.floor(new Date(startDate + 'T00:00:00Z').getTime() / 1000);
+    const s2 = Math.floor(Date.now() / 1000);
+    const fetchOne = async (p) => {
+      // FMP historical (fast-fails when the free tier is rate-limited — its EOD limit is often hit)
+      try {
+        const url = `https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=${p.sym}&from=${startDate}&to=${today}&apikey=${FMP_KEY}`;
+        const data = await fetch(url).then(r => r.json());
+        const hist = Array.isArray(data?.historical) ? data.historical : (Array.isArray(data) ? data : []);
+        if (hist.length) { store(p.sym, hist.map(h => [h.date, h.close])); return; }
+      } catch (_) {}
+      // Yahoo v8 daily fallback (reliable)
+      try {
+        const y = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${p.sym}?interval=1d&period1=${s1}&period2=${s2}&_cb=${Date.now()}`);
+        const res = y?.chart?.result?.[0], ts = res?.timestamp ?? [], cl = res?.indicators?.quote?.[0]?.close ?? [];
+        store(p.sym, ts.map((t, i) => [new Date(t * 1000).toISOString().slice(0, 10), cl[i]]));
+      } catch (_) {}
+    };
+    // Batch 6 at a time so 30 tickers don't fire serially (slow) or all-at-once (throttled).
+    for (let i = 0; i < positions.length; i += 6) {
+      await Promise.all(positions.slice(i, i + 6).map(fetchOne));
+    }
+
+    // Build/merge a log entry per trading day that has prices for most positions.
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtDate = dk => { const [y,m,d] = dk.split('-'); return `${d}-${MON[+m-1]}-${y}`; };
+    const log = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
+    const byKey = new Map(log.filter(e => e._key).map(e => [e._key, e]));
+    let added = 0;
+    // Backfill days BEFORE today only — today's point comes from the live captureLogEntry
+    // (backfill EOD for today isn't published yet and would be partial/wrong).
+    Object.keys(pricesByDate).filter(dk => dk >= startDate && dk < today).sort().forEach(dk => {
+      // Sum value AND cost over the SAME priced positions so missing tickers don't skew P&L
+      // (a missing ticker's value would drop out while its full cost stayed in → false loss).
+      let val = 0, costDay = 0, priced = 0;
+      positions.forEach(p => { const c = pricesByDate[dk]?.[p.sym]; if (c != null) { val += c * p.shares; costDay += p.cost; priced++; } });
+      if (priced < positions.length * 0.5) return; // skip thin days
+      const section = { currentValue: val, totalInvested: costDay, totalChange: val - costDay };
+      let entry = byKey.get(dk);
+      if (!entry) { entry = { _key: dk, date: fmtDate(dk) }; log.push(entry); byKey.set(dk, entry); added++; }
+      entry[group] = section;
+    });
+    log.sort((a, b) => (a._key || '').localeCompare(b._key || ''));
+    localStorage.setItem('alphapicks_log', JSON.stringify(log));
+    console.log(`[Backfill][${group}] from ${startDate}: ${added} new day(s), cost $${Math.round(costBasis)}`);
   }
 
   // Reconstructs historical portfolio values using the Schwab /marketdata/v1/pricehistory
@@ -3014,6 +3396,28 @@
     console.log('[AutoBackfill] Done.');
   }
 
+  // Silent one-time QG&I history backfill so its curve reaches back to the earliest buy date
+  // (22-Jul-26) without the user clicking "Load History". Runs once per load, only if the log
+  // doesn't already have a QG&I point at/before that earliest buy date.
+  let _autoBackfillQGIDone = false;
+  async function autoBackfillGroupHistory(group = 'qgi') {
+    if (_autoBackfillQGIDone) return;
+    const cfg = GROUPS[group]; if (!cfg) return;
+    const rowsG = document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`);
+    if (!rowsG.length || !tabStats[group]?.ready) return; // group not loaded yet — retry next cycle
+    const buyDates = getBuyDates(), alloc = getGroupAlloc();
+    let startDate = null;
+    rowsG.forEach(r => { const s = r.dataset.ticker; const d = alloc[s]?.[group]?.buyDate || buyDates[s];
+      if (d && (!startDate || d < startDate)) startDate = d; });
+    if (!startDate) return;
+    const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
+    const earliestQGI = raw.filter(e => e[group] && e._key).map(e => e._key).sort()[0];
+    if (earliestQGI && earliestQGI <= startDate) { _autoBackfillQGIDone = true; return; } // already covered
+    _autoBackfillQGIDone = true;
+    console.log(`[AutoBackfill][${group}] building history from ${startDate}`);
+    try { await backfillGroupHistory(group); } catch (e) { console.warn(`[AutoBackfill][${group}]`, e.message); }
+  }
+
   function renderPortfolioChart(tabId = 'alphapicks') {
     // Run migrateLog so old entries with string-formatted numbers ("$-5,234") are
     // converted to proper floats before any arithmetic is attempted.
@@ -3105,7 +3509,7 @@
 
     if (!points.length) {
       if (_portfolioChart) { _portfolioChart.destroy(); _portfolioChart = null; }
-      const tabLabel = tabId === 'alphapicks' ? 'Alpha Picks' : tabId === 'brokerage' ? 'Brokerage' : 'Retirement';
+      const tabLabel = tabId === 'alphapicks' ? 'Alpha Picks' : tabId === 'brokerage' ? 'Brokerage' : tabId === 'qgi' ? 'QG&I' : 'Retirement';
       statsEl.innerHTML = `<span style="color:#8b949e">Log entries found but ${tabLabel} has no recorded values yet.</span>`;
       return;
     }
@@ -3207,6 +3611,8 @@
     // timeline and CAGR reflect each tab's actual investment period.
     const _tabRowSel = tabId === 'alphapicks'
       ? '#picks-tbody tr[data-ticker]'
+      : tabId === 'qgi'
+        ? '#qgi-tbody tr[data-ticker]'
       : tabId === 'brokerage'
         ? '#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol]'
         : '#ira-tbody tr[data-symbol]';
@@ -3261,13 +3667,39 @@
       if (_extendedAxis && spyChangeVals) spyChangeVals[0] = null;
     }
 
+    // ── VYM benchmark curve (QG&I) — same construction as SPY, from benchAuditData ──
+    const benchD = benchAuditData?.[tabId];
+    let vymChangeVals = null;
+    if (benchD?.snapshots?.length && benchD?.closes) {
+      vymChangeVals = labels.map(dk => {
+        let snap = null;
+        for (let i = benchD.snapshots.length - 1; i >= 0; i--) {
+          if (benchD.snapshots[i].date <= dk) { snap = benchD.snapshots[i]; break; }
+        }
+        if (!snap || snap.cumulShares <= 0) return null;
+        const px = nearestSPYPrice(benchD.closes, dk);
+        if (!px) return null;
+        return snap.cumulShares * px - snap.cumulCostBasis;
+      });
+      if (_extendedAxis && vymChangeVals) vymChangeVals[0] = null;
+    }
+
     // SPY IRR from tile (same source as portfolio IRR)
     const spyIRR    = tabStats?.[tabId]?.spyIrrRate;
     const spyIrrStr = (spyIRR != null && isFinite(spyIRR))
       ? `${spyIRR >= 0 ? '+' : ''}${(spyIRR * 100).toFixed(1)}%` : '—';
+    // VYM IRR — second benchmark, QG&I only
+    const vymIRR    = tabStats?.[tabId]?.benchIrrRate;
+    const vymIrrStr = (vymIRR != null && isFinite(vymIRR))
+      ? `${vymIRR >= 0 ? '+' : ''}${(vymIRR * 100).toFixed(1)}%` : '—';
+    const vymStatHtml = tabId === 'qgi'
+      ? `<div><div style="color:#8b949e;font-size:0.75rem;text-transform:uppercase;letter-spacing:.06em">VYM IRR</div>
+             <div style="color:#2dd4bf;font-weight:600;font-size:1rem">${vymIrrStr}</div></div>`
+      : '';
 
     const tabName = tabId === 'alphapicks' ? 'Alpha Picks'
                   : tabId === 'brokerage'  ? 'Brokerage'
+                  : tabId === 'qgi'        ? 'QG&I'
                   : 'Retirement';
 
     const sign = latestChange >= 0 ? '+' : '';
@@ -3279,6 +3711,7 @@
            <div style="color:${col};font-weight:600;font-size:1rem">${irrPct}%</div></div>
       <div><div style="color:#8b949e;font-size:0.75rem;text-transform:uppercase;letter-spacing:.06em">S&amp;P IRR</div>
            <div style="color:#8b949e;font-weight:600;font-size:1rem">${spyIrrStr}</div></div>
+      ${vymStatHtml}
       <div><div style="color:#8b949e;font-size:0.75rem;text-transform:uppercase;letter-spacing:.06em">Calendar Days</div>
            <div style="color:#e6edf3;font-weight:600;font-size:1rem">${calendarDays} <span style="color:#8b949e;font-size:0.8rem">(since ${startLabel})</span></div></div>`;
 
@@ -3369,6 +3802,20 @@
             fill: false,
             spanGaps: true,
             order: 2,
+          }] : []),
+          ...(vymChangeVals ? [{
+            label: 'VYM (same flows)',
+            data:  vymChangeVals,
+            borderColor:     'rgba(45,212,191,0.85)',   // teal — matches the QG&I ◆ marker
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            borderDash:  [2, 3],
+            pointRadius:      0,
+            pointHoverRadius: 4,
+            tension: 0.25,
+            fill: false,
+            spanGaps: true,
+            order: 3,
           }] : []),
         ]
       },
@@ -3490,6 +3937,14 @@
     refreshLabel.textContent = text;
     document.querySelectorAll('.full-refresh-btn').forEach(b => { b.disabled = (state === 'loading'); });
   }
+  // Per-tab freshness status ("N/M live"). Each tab's price loop records its own, and
+  // paintActiveTabStatus() shows the ACTIVE tab's — so switching tabs updates the count
+  // immediately instead of showing whichever tab fetched last.
+  const _tabLive = {};
+  function paintActiveTabStatus() {
+    const s = _tabLive[activeTabId()];
+    if (s) setStatus(s.state, s.text);
+  }
   function flashRow(row, dir) {
     row.classList.remove('flash-up', 'flash-down');
     void row.offsetWidth;
@@ -3525,7 +3980,12 @@
       for (let i = 0; i < 300; i++) {
         const f = npv(r), df = dnpv(r);
         if (!isFinite(f) || Math.abs(df) < 1e-12) break;
-        const nr = r - f / df;
+        let nr = r - f / df;
+        // Clamp: a Newton step landing at r<=-1 makes (1+r) zero/negative, and a fractional
+        // power of that is NaN, which kills convergence before it can find a legitimate
+        // deep-loss rate (e.g. -99% over a short holding period). Keep the search inside
+        // the valid domain instead of aborting.
+        if (nr <= -0.999999) nr = -0.999999;
         if (Math.abs(nr - r) < 1e-8) return nr;
         r = nr;
       }
@@ -3540,7 +4000,7 @@
   // many seconds. A 502/CORS failure returns/throws fast and moves on; this cap only bites
   // when a proxy accepts the connection but never responds (e.g. codetabs 522/Cloudflare).
   // Worst case is timeoutMs × attempts instead of unbounded.
-  async function fetchJSON(url, timeoutMs = 4000) {
+  async function fetchJSON(url, timeoutMs = 10000) {
     const attempts = [
       (signal) => fetch(`${_STORE_BASE}/proxy?url=${encodeURIComponent(url)}`, { cache: 'no-store', signal }),
       (signal) => fetch(url, { cache: 'no-store', signal }),
@@ -3612,6 +4072,63 @@
       postMarketChange: postChg,
       postMarketChangePercent: postChg != null && prev ? (postChg / prev) * 100 : null,
     };
+  }
+
+  // ── Schwab Market Data (primary price source) ────────────────────────────
+  // Same OAuth token already used for positions. One call returns real-time NBBO
+  // quotes for every symbol requested, including tickers FMP's plan can't serve at
+  // all (confirmed 2026-08-01). Proxied through the local server (/schwab/api) since
+  // the browser never holds the OAuth token itself.
+  //
+  // Field mapping, cross-validated against Yahoo for AAPL on 2026-08-01:
+  //   regular.regularMarketLastPrice / quote.closePrice == Yahoo's regularMarketPrice
+  //     (both are the latest completed regular-session close/price reference).
+  //   Schwab doesn't expose a separate "previous close" field directly, but
+  //   regular.regularMarketNetChange is computed against it, so it's derived:
+  //     prevClose = price - regularMarketNetChange.
+  //   extended.lastPrice covers pre- AND post-market with no separate fields, so
+  //   which bucket it means is decided by the app's own clock-based session state
+  //   (same reasoning as everywhere else in this app: API-reported state is not
+  //   trusted). extended.quoteTime === 0 means no extended-hours trade has happened
+  //   (stale/absent), so that case is treated as no pre/post price.
+  function normaliseSchwabQuote(sq, session) {
+    const q = sq?.quote, reg = sq?.regular, ext = sq?.extended;
+    if (!q) return null;
+    const price = reg?.regularMarketLastPrice ?? q.closePrice ?? q.mark ?? q.lastPrice;
+    if (price == null) return null;
+    const netChange = reg?.regularMarketNetChange;
+    const prevClose = (netChange != null) ? price - netChange : q.closePrice;
+    // Sanity guard: quote.closePrice has been observed to drift to a stale/rolled-over value
+    // over a weekend while regular.regularMarketLastPrice stays fixed (confirmed 2026-08-01) --
+    // if that ever produces an implausible swing, reject the whole quote rather than risk
+    // corrupting G/L, and let the caller fall through to Yahoo.
+    if (!prevClose || Math.abs((price - prevClose) / prevClose) > 0.5) return null;
+    const extValid = ext && ext.quoteTime > 0 && ext.lastPrice > 0;
+    return normaliseQuote({
+      regularMarketPrice:         price,
+      regularMarketPreviousClose: prevClose,
+      preMarketPrice:  (extValid && session === 'PRE')  ? ext.lastPrice : null,
+      postMarketPrice: (extValid && session === 'POST') ? ext.lastPrice : null,
+    });
+  }
+
+  // Fetches ALL requested symbols in a single call. Returns {} (not a throw) on any
+  // failure so callers can fall through to Yahoo/FMP unconditionally.
+  async function fetchSchwabQuotesBatched(symbols) {
+    if (!symbols.length) return {};
+    const session = getSessionFromClock();
+    const apiPath = `/marketdata/v1/quotes?symbols=${encodeURIComponent(symbols.join(','))}`;
+    try {
+      const resp = await fetch(`/schwab/api?path=${encodeURIComponent(apiPath)}`, { cache: 'no-store' });
+      if (!resp.ok) return {};
+      const data = await resp.json();
+      const out = {};
+      symbols.forEach(sym => {
+        const nq = normaliseSchwabQuote(data[sym], session);
+        if (nq) out[sym] = nq;
+      });
+      return out;
+    } catch { return {}; }
   }
 
   // Extended-hours fallback: fetch 1m candles with includePrePost=true and find
@@ -3701,7 +4218,7 @@
     const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=1d&_cb=${Date.now()}`;
     const data = await fetchJSON(url);
     const meta = data?.chart?.result?.[0]?.meta;
-    if (!meta || !meta.regularMarketPrice) return null;
+    if (!meta || !meta.regularMarketPrice) { logYahooFailure(ticker); return null; }
     // Synthesise a minimal quote-like object so normaliseQuote can process it
     return normaliseQuote({
       marketState:                  meta.marketState,
@@ -3729,18 +4246,20 @@
     } catch { return null; }
   }
 
-  // Returns the most recent extended-hours (pre or post) last trade, or null.
-  async function fetchFMPExtended(symbol) {
-    try {
-      const resp = await fetch(
-        `https://financialmodelingprep.com/stable/aftermarket-trade?symbol=${symbol}&apikey=${FMP_KEY}`,
-        { cache: 'no-store' }
-      );
-      if (!resp.ok) return null;
-      const data = await resp.json();
-      const q = data?.[0];
-      return (q && q.price != null) ? q : null;
-    } catch { return null; }
+  // Fetch FMP quotes for many symbols, batched (5 at a time, 250ms apart) instead of one big
+  // Promise.all — confirmed 2026-08-01: firing ~20 parallel FMP requests at once (the periodic
+  // quality-check's forceFmp path) tripped FMP's own per-request concurrency limit and silently
+  // failed almost all of them (1 success out of 20 attempted). Returns quotes in the same order
+  // as the input symbols array (null for any that failed).
+  async function fetchFMPQuotesBatched(symbols) {
+    const out = new Array(symbols.length).fill(null);
+    for (let i = 0; i < symbols.length; i += 5) {
+      const batch = symbols.slice(i, i + 5);
+      const res = await Promise.all(batch.map(fetchFMPQuote));
+      res.forEach((r, j) => { out[i + j] = r; });
+      if (i + 5 < symbols.length) await new Promise(r => setTimeout(r, 250));
+    }
+    return out;
   }
 
   // Convert FMP quote + optional extended-hours trade into our internal shape.
@@ -3792,26 +4311,33 @@
     const setEl = (t, c) => els.forEach(e => { e.textContent = t; e.style.color = c; });
     const session = getSessionFromClock();
 
-    // ── REGULAR session: use SPY live price ───────────────────────────────
+    // ── REGULAR session: use SPY live price (Schwab primary, Yahoo/FMP backup on a miss) ──
     if (session === 'REGULAR') {
+      const swQuote = (await fetchSchwabQuotesBatched(['SPY'])).SPY;
+      if (swQuote?.regularMarketChangePercent != null) {
+        const pct = swQuote.regularMarketChangePercent;
+        setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
+        return;
+      }
+      const data = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d&formatted=false&_cb=${Date.now()}`);
+      const res  = data?.chart?.result?.[0];
+      const price = res?.meta?.regularMarketPrice;
+      const ts = res?.timestamp ?? [], cs = res?.indicators?.quote?.[0]?.close ?? [];
+      const cutoff = Date.now() - 4 * 3600 * 1000;
+      let prev = null;
+      for (let i = ts.length - 1; i >= 0; i--) { if (ts[i] * 1000 < cutoff && cs[i] != null) { prev = cs[i]; break; } }
+      if (price && prev) {
+        const pct = (price - prev) / prev * 100;
+        setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
+        return;
+      }
+      // FMP backup — Yahoo missed; still within REGULAR hours so FMP is allowed.
       const fmpQ = await fetchFMPQuote('SPY');
       if (fmpQ?.price && fmpQ?.previousClose) {
         const pct = (fmpQ.price - fmpQ.previousClose) / fmpQ.previousClose * 100;
         setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
-        return;
+        logFmpUsage(['SPY'], 'spybox-fallback');
       }
-      // Yahoo fallback
-      const data = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5d&formatted=false&_cb=${Date.now()}`);
-      const res  = data?.chart?.result?.[0];
-      if (!res) return;
-      const price = res.meta?.regularMarketPrice;
-      const ts = res.timestamp ?? [], cs = res.indicators?.quote?.[0]?.close ?? [];
-      const cutoff = Date.now() - 4 * 3600 * 1000;
-      let prev = null;
-      for (let i = ts.length - 1; i >= 0; i--) { if (ts[i] * 1000 < cutoff && cs[i] != null) { prev = cs[i]; break; } }
-      if (!price || !prev) return;
-      const pct = (price - prev) / prev * 100;
-      setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
       return;
     }
 
@@ -3895,7 +4421,7 @@
     setEl(`${rate.toFixed(2)}${pctStr}`, pct == null ? '#8b949e' : pct >= 0 ? '#3fb950' : '#ff7b72');
   }
 
-  async function fetchPrices(source = 'fmp') {
+  async function fetchPrices(forceFmp = false) {
     syncRows();
     if (!tickers.length) {
       setStatus('', 'Waiting for Schwab sync…');
@@ -3911,44 +4437,52 @@
     const isExt   = session !== 'REGULAR';
     const quoteMap = {};
 
-    // ── Primary: FMP individual parallel calls (CORS-native, no proxy) ─────
-    // Skipped when source='yahoo' (auto-refresh) to preserve FMP rate limit.
-    if (source === 'fmp') {
-      const [fmpQuotes, fmpExtended] = await Promise.all([
-        Promise.all(tickers.map(fetchFMPQuote)),
-        isExt ? Promise.all(tickers.map(fetchFMPExtended)) : Promise.resolve(tickers.map(() => null))
-      ]);
-      tickers.forEach((t, i) => {
-        if (fmpQuotes[i]) quoteMap[t] = normaliseFMP(fmpQuotes[i], fmpExtended[i], session);
+    // ── Primary: Schwab Market Data (one call, same OAuth token as positions) ──
+    Object.assign(quoteMap, await fetchSchwabQuotesBatched(tickers));
+
+    // ── Fallback: Yahoo per-symbol chart for anything Schwab missed ──────────
+    // Yahoo's v7 batch quote endpoint requires auth (401 Unauthorized as of 2026-07-27, an
+    // external Yahoo API access change) — go straight to the reliable per-symbol chart API.
+    // Concurrency-limited (6 at a time) to avoid proxy/rate throttling, same as QG&I's
+    // refreshGroupPrices().
+    const stillNeeded1 = tickers.filter(t => !quoteMap[t]);
+    for (let i = 0; i < stillNeeded1.length; i += 6) {
+      const batch = stillNeeded1.slice(i, i + 6);
+      const res = await Promise.all(batch.map(t => fetchTickerChart(t).catch(() => null)));
+      batch.forEach((t, j) => { if (res[j]) quoteMap[t] = res[j]; });
+    }
+
+    // ── FMP backup: ONLY for tickers Schwab+Yahoo both missed, and ONLY during REGULAR hours ──
+    // FMP's free tier is 250 calls/day total (confirmed 2026-07-30) — this used to be called
+    // "source='fmp'" and fire for every ticker at each session boundary (2am/9:30am/4pm/8pm),
+    // which alone was a fraction of the real problem: refreshBrokeragePrices/refreshGroupPrices
+    // fired unconditionally on every 2-20 min poll regardless of this function's mode. Now every
+    // FMP call anywhere in the app follows the same rule: Yahoo first, FMP only for a miss,
+    // only in REGULAR session. Logged via logFmpUsage to measure real-world volume.
+    //
+    // forceFmp (from checkFmpQualityCheckpoint, 3x/day) overrides both restrictions: it targets
+    // EVERY ticker (not just Yahoo misses) and ignores the session gate. Yahoo returning a
+    // stale-but-valid-looking cached price under sustained load wouldn't show up as a "miss" at
+    // all, so relying only on the miss-fallback can't catch it — this is a deliberate, budgeted
+    // cross-check against exactly that risk (confirmed 2026-08-01: zero FMP usage and zero
+    // price-degraded alerts all day, yet positions reportedly weren't updating).
+    const missing = forceFmp ? tickers.filter(t => FMP_COVERED_SYMBOLS.has(t)) : tickers.filter(t => !quoteMap[t]);
+    if (missing.length && (forceFmp || session === 'REGULAR')) {
+      const fmpQuotes = await fetchFMPQuotesBatched(missing);
+      const fmpUsed = [];
+      missing.forEach((t, i) => {
+        if (fmpQuotes[i]) { quoteMap[t] = normaliseFMP(fmpQuotes[i], null, session); fmpUsed.push(t); }
       });
       // Cache earningsAnnouncement from raw FMP quotes before normaliseFMP discards it.
       // Sticky logic: keep an existing date that is still within the ±1 alert window —
       // this prevents FMP's "next quarter" rollover from overwriting a same-day date.
-      cacheEarningsDatesFromFMP(tickers, fmpQuotes);
-    }
-
-    // ── Yahoo v7 batch: primary when source='yahoo', fallback otherwise ──
-    const missing = source === 'yahoo' ? tickers : tickers.filter(t => !quoteMap[t]);
-    if (missing.length) {
-      const quoteUrl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${missing.join(',')}&formatted=false&_cb=${Date.now()}`;
-      const quoteData = await fetchJSON(quoteUrl);
-      (quoteData?.quoteResponse?.result ?? []).forEach(q => {
-        quoteMap[q.symbol] = normaliseQuote(q);
-      });
-      const stillMissing = missing.filter(t => !quoteMap[t]);
-      if (stillMissing.length) {
-        const fallbacks = await Promise.all(stillMissing.map(fetchTickerChart));
-        stillMissing.forEach((t, i) => { if (fallbacks[i]) quoteMap[t] = fallbacks[i]; });
-      }
+      cacheEarningsDatesFromFMP(missing, fmpQuotes);
+      logFmpUsage(fmpUsed, forceFmp ? 'alphapicks-quality-check' : 'alphapicks-fallback');
     }
 
     // ── Extended-hours for any ticker still missing pre/post price ────────────
-    // Priority:
-    //   1. Yahoo v7 batch — preMarketPrice / postMarketPrice are live-tick fields,
-    //      same real-time feed as the Yahoo Finance website.  Fast, one call.
-    //   2. Yahoo 1m chart (fetchExtendedHours) — only for any still unresolved.
-    //      The chart API lags a few minutes behind the live feed, so use it only
-    //      when v7 also returns null (stock hasn't yet traded in the ext session).
+    // Yahoo's v7 batch quote (the live-tick source this used to try first) now requires
+    // auth (401, broken as of 2026-07-27) — go straight to the 1m chart (fetchExtendedHours).
     if (isExt) {
       const needsExtFallback = tickers.filter(t => {
         const q = quoteMap[t]; if (!q) return false;
@@ -3956,39 +4490,8 @@
       });
 
       if (needsExtFallback.length) {
-        // ── Step 1: Yahoo v7 live-tick batch ──────────────────────────────────
-        let stillNeedsChart = [...needsExtFallback];
-        try {
-          const v7ExtUrl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${needsExtFallback.join(',')}&formatted=false&_cb=${Date.now()}`;
-          const v7ExtData = await fetchJSON(v7ExtUrl);
-          (v7ExtData?.quoteResponse?.result ?? []).forEach(q => {
-            const t   = q.symbol;
-            if (!quoteMap[t]) return;
-            const nq  = normaliseQuote(q);
-            const extP = session === 'PRE' ? nq.preMarketPrice : nq.postMarketPrice;
-            if (extP == null) return;                       // not yet trading ext-hours
-            if (session === 'PRE') {
-              quoteMap[t].preMarketPrice         = nq.preMarketPrice;
-              quoteMap[t].preMarketChange        = nq.preMarketChange;
-              quoteMap[t].preMarketChangePercent = nq.preMarketChangePercent;
-            } else {
-              quoteMap[t].postMarketPrice         = nq.postMarketPrice;
-              quoteMap[t].postMarketChange        = nq.postMarketChange;
-              quoteMap[t].postMarketChangePercent = nq.postMarketChangePercent;
-            }
-            // v7 regularMarketPrice = last regular-session close (not updated during ext hours).
-            // Overwrite so both the price and the reference come from the same source.
-            if (nq.regularMarketPrice) quoteMap[t].regularMarketPrice = nq.regularMarketPrice;
-            stillNeedsChart = stillNeedsChart.filter(x => x !== t);
-          });
-        } catch (e) {
-          console.warn('[ExtHours] Yahoo v7 batch failed, falling through to chart:', e.message);
-        }
-
-        // ── Step 2: 1m chart fallback for any still unresolved ────────────────
-        if (stillNeedsChart.length) {
-          const extResults = await Promise.all(stillNeedsChart.map(fetchExtendedHours));
-          stillNeedsChart.forEach((t, i) => {
+        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        needsExtFallback.forEach((t, i) => {
             const ext = extResults[i];
             if (ext && quoteMap[t]) {
               quoteMap[t].preMarketPrice         = ext.preMarketPrice;
@@ -4005,7 +4508,6 @@
               }
             }
           });
-        }
       }
     }
 
@@ -4066,7 +4568,11 @@
 
       const value  = shares * price;
       const gain   = value - cost;
-      const pct    = (gain / cost) * 100;
+      // % denominator: total capital ever deployed (econGrossBuys, set by loadIRRData), not the
+      // raw remaining cost -- keeps this in sync with the glCellHTML fix in loadIRRData so a
+      // mostly-sold-off position doesn't show an inflated % again on the next price tick.
+      const glBasis = parseFloat(row.dataset.econGrossBuys) || cost;
+      const pct    = glBasis ? (gain / glBasis) * 100 : 0;
       totalValue  += value;
       updatedCount++;
 
@@ -4175,7 +4681,8 @@
     // total, and the dot turns amber with N<M so stale numbers are visible, not silent.
     const _upTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
     const _staleN = rows.length - updatedCount;
-    setStatus(_staleN > 0 ? 'warn' : 'ok', `Updated ${_upTime} · ${updatedCount}/${rows.length} live`);
+    _tabLive.alphapicks = { state: _staleN > 0 ? 'warn' : 'ok', text: `Updated ${_upTime} · ${updatedCount}/${rows.length} live` };
+    paintActiveTabStatus();
     const _spyDone = fetchSpyBox(); // D2: non-blocking — SPY chip updates async; mobile push chains on it below
     fetchUsdIls();
     checkBuyCallReminder();
@@ -4186,6 +4693,7 @@
     checkDivAlerts();
     checkEarningsAlerts();
     autoBackfillHistory();   // silent, once per load — fills Dec 3 gap if not yet done
+    autoBackfillGroupHistory('qgi'); // silent, once per load — anchors QG&I curve at its buy date
     savePriceCache();
     _spyDone.then(() => scheduledSyncToCloud()); // D2+D3: wait for SPY chip, then debounced push
     // Alpha Picks intraday history comes from pushIntradaySnap (same FMP reference as the table).
@@ -4194,12 +4702,139 @@
     // Keep brokerage/IRA intraday chart in sync with the price table (same 2-min cadence).
     // Only push if Schwab positions have already been loaded — avoids pushing zeros on first load.
     if (schwabSyncedAt) {
-      setTimeout(() => { try { refreshBrokeragePrices(); } catch(_) {} }, 1500); // D1: stagger after Alpha Picks FMP wave
+      // Staggered well apart (not just 1.5s/2.2s) so each tab's burst of individual per-symbol
+      // chart requests clears the single-threaded local proxy before the next tab's burst starts —
+      // overlapping bursts were exceeding the proxy's queue depth and causing timeouts (2026-07-27).
+      setTimeout(() => { try { refreshBrokeragePrices(); } catch(_) {} }, 4000); // D1: stagger after Alpha Picks FMP wave
+      setTimeout(() => { try { refreshGroupPrices('qgi'); }   catch(_) {} }, 8000); // QG&I live prices, staggered further
     }
     } catch (err) {
       console.error('[fetchPrices] Uncaught error:', err);
       setStatus('error', `Error: ${err.message || 'unknown'} — check DevTools console`);
     }
+  }
+
+  // Live price refresh for a tagged group's table (QG&I). Self-contained: reuses the same
+  // quote helpers as fetchPrices but aggregates totals into tabStats[group] independently,
+  // so it never disturbs the Alpha Picks price path. Updates #<tbody> rows + weights + cache.
+  async function refreshGroupPrices(group, forceFmp = false) {
+    const cfg = GROUPS[group]; if (!cfg) return;
+    const rowsG = Array.from(document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`));
+    if (!rowsG.length) { tabStats[group].dailyGL = 0; return; }
+    const tks = [...new Set(rowsG.map(r => r.dataset.ticker))];
+    const session = getSessionFromClock();
+    const isExt = session !== 'REGULAR';
+    const quoteMap = {};
+    // 1) Schwab Market Data first (one call, same OAuth token as positions).
+    Object.assign(quoteMap, await fetchSchwabQuotesBatched(tks));
+    // 1b) Yahoo v8 chart for anything Schwab missed. Concurrency-limited (6 at a time) so
+    //    30 calls don't get proxy/rate throttled — that was the "1/30 live" cause.
+    let missing = tks.filter(t => !quoteMap[t]);
+    for (let i = 0; i < missing.length; i += 6) {
+      const batch = missing.slice(i, i + 6);
+      const res = await Promise.all(batch.map(t => fetchTickerChart(t).catch(() => null)));
+      batch.forEach((t, j) => { if (res[j]) quoteMap[t] = res[j]; });
+    }
+    // 2) FMP backup — ONLY for tickers Schwab+Yahoo both missed, and ONLY during REGULAR hours. FMP's free
+    //    tier is 250 calls/day total (confirmed 2026-07-30); QG&I's 30-ticker wave firing every
+    //    2-20 min regardless of session used to be one of the two biggest FMP consumers in the
+    //    app. Logged via logFmpUsage to measure real-world volume after this change.
+    // forceFmp (from checkFmpQualityCheckpoint, 3x/day) targets every ticker and ignores the
+    // session gate — see the comment on this same pattern in fetchPrices().
+    missing = forceFmp ? tks.filter(t => FMP_COVERED_SYMBOLS.has(t)) : tks.filter(t => !quoteMap[t]);
+    if (missing.length && (forceFmp || session === 'REGULAR')) {
+      try {
+        const fq = await fetchFMPQuotesBatched(missing);
+        const fmpUsed = [];
+        missing.forEach((t, i) => { if (fq[i]) { quoteMap[t] = normaliseFMP(fq[i], null, session); fmpUsed.push(t); } });
+        logFmpUsage(fmpUsed, forceFmp ? 'qgi-quality-check' : 'qgi-fallback');
+      } catch (_) {}
+    }
+
+    // 3) Extended-hours for any ticker still missing pre/post price. fetchTickerChart (step 1)
+    //    hardcodes preMarketPrice/postMarketPrice to null -- it never carries real extended-hours
+    //    data -- so any ticker FMP couldn't answer (very common by the time QG&I's 30 tickers run,
+    //    per the comment above) would otherwise NEVER show a PRE/AH tag. Yahoo's v7 live-tick batch
+    //    (this used to try first) now requires auth (401, broken as of 2026-07-27) — go straight
+    //    to the 1m chart, same as Alpha Picks' fetchPrices and Brokerage/IRA's refreshBrokeragePrices.
+    if (isExt) {
+      const needsExtFallback = tks.filter(t => {
+        const q = quoteMap[t]; if (!q) return false;
+        return session === 'PRE' ? q.preMarketPrice == null : q.postMarketPrice == null;
+      });
+      if (needsExtFallback.length) {
+        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+          needsExtFallback.forEach((t, i) => {
+            const ext = extResults[i];
+            if (ext && quoteMap[t]) {
+              quoteMap[t].preMarketPrice          = ext.preMarketPrice;
+              quoteMap[t].preMarketChange         = ext.preMarketChange;
+              quoteMap[t].preMarketChangePercent  = ext.preMarketChangePercent;
+              quoteMap[t].postMarketPrice         = ext.postMarketPrice;
+              quoteMap[t].postMarketChange        = ext.postMarketChange;
+              quoteMap[t].postMarketChangePercent = ext.postMarketChangePercent;
+              if (session === 'PRE' && ext.chartPreviousClose) {
+                quoteMap[t].regularMarketPrice = ext.chartPreviousClose;
+              }
+            }
+          });
+      }
+    }
+
+    let totVal = 0, totDay = 0, hasDay = false, updated = 0;
+    let closeMap = {}; try { closeMap = JSON.parse(localStorage.getItem('alphapicks_close_map') || '{}'); } catch (_) {}
+    rowsG.forEach(row => {
+      const t = row.dataset.ticker;
+      const shares = parseFloat(row.dataset.shares);
+      const cost   = parseFloat(row.dataset.cost);
+      const q = quoteMap[t];
+      const price = !q ? null
+                  : q.isPre && q.preMarketPrice != null ? q.preMarketPrice
+                  : q.postMarketPrice != null ? q.postMarketPrice
+                  : q.regularMarketPrice;
+      if (!price) { const lv = parseFloat(row.dataset.mktVal); if (!isNaN(lv)) totVal += lv; return; }
+      updated++;
+      const priceTag = q.isPre && q.preMarketPrice != null ? 'PRE' : q.postMarketPrice != null ? 'AH' : null;
+      const value = shares * price, gain = value - cost;
+      const glBasis = parseFloat(row.dataset.econGrossBuys) || cost;
+      const pct = glBasis ? gain / glBasis * 100 : 0;
+      totVal += value;
+      const cls = gain >= 0 ? 'gain' : 'loss';
+      const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
+      const logClose = q.isPre ? (closeMap[t] ?? null) : null;
+      const ref = logClose ?? (q.postMarketPrice != null ? (q.regularMarketPreviousClose ?? q.regularMarketPrice) : q.regularMarketPrice);
+      const dayChange = isExtHours && ref ? price - ref : q.regularMarketChange;
+      const dayPct = isExtHours && ref ? (price - ref) / ref * 100 : logClose ? (price - logClose) / logClose * 100 : q.regularMarketChangePercent;
+      const dayPctHtml = dayPct != null ? `<span class="${dayPct >= 0 ? 'gain' : 'loss'}" style="font-size:0.75rem;">${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%</span>` : '';
+      const pc = row.querySelector('.cur-price');
+      if (pc) pc.innerHTML = `$${fmtPrice(price)}${priceTag ? `<span class="market-label">${priceTag}</span>` : ''}` + (dayPctHtml ? `<br>${dayPctHtml}` : '');
+      const vc = row.querySelector('.cur-value'); if (vc) { vc.textContent = `$${fmtD(value)}`; vc.className = `right cur-value ${cls}`; }
+      const gc = row.querySelector('.gain-loss'); if (gc) gc.innerHTML = glCellHTML(gain, pct);
+      row.dataset.price = price; row.dataset.value = value; row.dataset.mktVal = value; row.dataset.dayPct = (dayPct != null ? dayPct : '');
+      if (dayChange != null) { totDay += dayChange * shares; hasDay = true; }
+    });
+
+    tabStats[group].value   = totVal;
+    tabStats[group].totalGL = totVal - tabStats[group].invested;
+    tabStats[group].dailyGL = hasDay ? totDay : 0;
+    tabStats[group].ready   = true;
+    if (totVal > 0) rowsG.forEach(r => { const w = r.querySelector('.weight'); if (w) w.textContent = `${(parseFloat(r.dataset.value || r.dataset.mktVal || 0) / totVal * 100).toFixed(1)}%`; });
+    {
+      // Record this group's freshness; paintActiveTabStatus shows it only while its tab is active.
+      const _t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const _stale = rowsG.length - updated;
+      _tabLive[group] = { state: _stale > 0 ? 'warn' : 'ok', text: `Updated ${_t} · ${updated}/${rowsG.length} live` };
+    }
+    if (activeTabId() === group) renderTabStats(group);
+    paintActiveTabStatus();
+    try { pushIntradaySnap(group, hasDay ? totDay : 0); } catch (_) {}
+    updateAllocTabStats(); renderTabStats('allocation');
+    try {
+      const rowData = rowsG.map(r => ({ ticker: r.dataset.ticker, price: r.dataset.price || '', value: r.dataset.value || '',
+        priceHTML: r.querySelector('.cur-price')?.innerHTML, valText: r.querySelector('.cur-value')?.textContent,
+        valClass: r.querySelector('.cur-value')?.className, glHTML: r.querySelector('.gain-loss')?.innerHTML }));
+      localStorage.setItem('qgi_price_cache', JSON.stringify({ ts: Date.now(), rowData }));
+    } catch (_) {}
   }
 
   // ── Backfill missing log entries (handles PC-sleep-at-close scenario) ────
@@ -4261,7 +4896,9 @@
     };
 
     const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
-    if (raw.some(e => e._key === dateKey)) return; // appeared in the meantime
+    // Only bail if a REAL entry appeared in the meantime -- a naive _backfilled placeholder
+    // (invested=0, value-only) for this same day should still be replaced by this real fetch.
+    if (raw.some(e => e._key === dateKey && !e._backfilled)) return;
     const log = raw.filter(e => e._key !== dateKey);
 
     // Re-anchor dailyChange against the prior log entry's currentValue
@@ -4285,12 +4922,185 @@
       <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
     c.appendChild(toast);
 
+    pushLogToServer().then(ok => { if (ok) { localStorage.removeItem('alphapicks_log_pending'); localStorage.removeItem('alphapicks_log_pending_alerted'); } });
     autoSaveLog();
   }
 
-  // Checks whether the most recently completed trading day has a log entry.
-  // If not, attempts a backfill (PC was asleep at 4:10 PM ET).
+  // Reconstructs shares held for `sym` as of a past date by walking schwab_tx_journal
+  // backward from a known current share count. Generalized, tab-agnostic version of the
+  // sharesAtDate() helper inside loadIRRData() (which is scoped to the tagged/Alpha-Picks group).
+  function sharesAtDateGlobal(sym, iso, currentShares) {
+    let sh = currentShares[sym] || 0;
+    try {
+      const journal = JSON.parse(localStorage.getItem('schwab_tx_journal') || '[]');
+      const sorted = journal.filter(j => j.symbol === sym).sort((a, b) => b.date.localeCompare(a.date));
+      for (const j of sorted) {
+        if (j.date <= iso) break;
+        const q = parseFloat(j.qty) || 0;
+        if (j.action === 'buy' || j.action === 'Buy' || j.action === 'Reinvest Shares') sh -= q;
+        else if (j.action === 'sell') sh += q;
+      }
+    } catch (_) {}
+    return Math.max(sh, 0);
+  }
+
+  // ── Full historical backfill — reconstructs all 4 tabs as far back as buy-date data allows ──
+  // One-time/on-demand operation (not part of the daily 4:05 PM capture path). For every currently
+  // held ticker across Brokerage/IRA/Alpha Picks/QG&I, fetches its full multi-year daily-close
+  // history ONCE, then walks every US trading day from the earliest known buy date to yesterday,
+  // filling in any day missing from the log. Tickers are included per-day only once their buy date
+  // has passed (via getAllBuyDates()) and their reconstructed share count (sharesAtDateGlobal) is
+  // positive, so early days correctly show fewer positions than today. annualReturn/spyReturn are
+  // left blank for backfilled days — matching the existing single-day backfillLogEntry() precedent —
+  // since a trustworthy historical IRR would require re-running the full XIRR engine per day.
+  async function backfillHistoricalLog(progressCb) {
+    const buyDates = getAllBuyDates();
+    const tabDefs = [
+      { id: 'brokerage',  selector: '#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol]' },
+      { id: 'ira',        selector: '#ira-tbody tr[data-symbol]' },
+      { id: 'alphapicks', selector: '#picks-tbody tr[data-ticker]' },
+      { id: 'qgi',        selector: '#qgi-tbody tr[data-ticker]' },
+    ];
+
+    // Snapshot current rows per tab: {ticker, shares, cost, avgPrice}
+    const tabRows = {};
+    const allTickers = new Set();
+    tabDefs.forEach(({ id, selector }) => {
+      const list = [];
+      document.querySelectorAll(selector).forEach(row => {
+        const t = row.dataset.ticker || row.dataset.symbol;
+        // 'PRIVATE'/'HGI2' are internal sentinels for the two HGI private funds — no exchange
+        // symbol, no Yahoo price history. Excluded the same way the rest of the app excludes them.
+        if (!t || t === 'PRIVATE' || t === 'HGI2' || row.dataset.hgi) return;
+        const shares = parseFloat(row.dataset.shares) || 0;
+        // Alpha Picks/QG&I rows expose `cost`; Brokerage/IRA rows only expose `costBasis`.
+        // Prefer econCostBasis (net-invested convention) where present, matching the rest of the app.
+        const cost   = parseFloat(row.dataset.econCostBasis ?? row.dataset.cost ?? row.dataset.costBasis) || 0;
+        if (shares <= 0) return;
+        list.push({ ticker: t, shares, cost, avgPrice: cost / shares });
+        allTickers.add(t);
+      });
+      tabRows[id] = list;
+    });
+
+    if (!allTickers.size) { console.log('[Log] Backfill: no positions found on any tab'); return { added: 0 }; }
+
+    const noBuyDate = [...allTickers].filter(t => !buyDates[t]);
+    if (noBuyDate.length) console.warn('[Log] Backfill: no known buy date for', noBuyDate.join(', '), '— these will be omitted from backfilled days');
+
+    // One historical fetch per ticker (5y daily closes) instead of one fetch per missing day
+    const histCloses = {};
+    await Promise.all([...allTickers].map(async t => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1d&range=5y&_cb=${Date.now()}`;
+        const data = await fetchJSON(url);
+        const result = data?.chart?.result?.[0];
+        if (!result) return;
+        const stamps = result.timestamp ?? [];
+        const closes = result.indicators?.quote?.[0]?.close ?? [];
+        const map = {};
+        for (let i = 0; i < stamps.length; i++) {
+          if (closes[i] == null) continue;
+          map[new Date(stamps[i] * 1000).toISOString().split('T')[0]] = closes[i];
+        }
+        histCloses[t] = map;
+      } catch (e) { console.warn('[Log] Backfill: history fetch failed for', t, e); }
+    }));
+
+    // Earliest boundary = earliest buy date among tickers that actually resolved price history
+    // (excludes symbol-less holdings like HGI, which have no Yahoo chart data)
+    const heldTickers = [...allTickers].filter(t => buyDates[t] && histCloses[t] && Object.keys(histCloses[t]).length);
+    if (!heldTickers.length) { console.log('[Log] Backfill: no tickers with both a buy date and price history'); return { added: 0 }; }
+    const earliest = heldTickers.reduce((min, t) => (buyDates[t] < min ? buyDates[t] : min), buyDates[heldTickers[0]]);
+
+    const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
+    const existingByKey = new Map(raw.map(e => [e._key || e.date, e]));
+    const todayKey = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+      .toISOString().split('T')[0];
+
+    const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const newEntries = [];
+    const prevValueByTab = { brokerage: null, ira: null, alphapicks: null, qgi: null };
+    const currentSharesByTab = {};
+    tabDefs.forEach(({ id }) => { currentSharesByTab[id] = Object.fromEntries(tabRows[id].map(r => [r.ticker, r.shares])); });
+
+    const cursor = new Date(earliest + 'T00:00:00Z');
+    const endDate = new Date(todayKey + 'T00:00:00Z');
+
+    while (cursor < endDate) {
+      const dateKey = cursor.toISOString().split('T')[0];
+      const dow = cursor.getUTCDay();
+      const isHoliday = usMarketHolidays(cursor.getUTCFullYear()).has(dateKey);
+
+      if (dow !== 0 && dow !== 6 && !isHoliday) {
+        const existing = existingByKey.get(dateKey);
+        if (existing) {
+          tabDefs.forEach(({ id }) => {
+            if (existing[id]?.currentValue != null) prevValueByTab[id] = existing[id].currentValue;
+          });
+        } else {
+          const [y, m, d] = dateKey.split('-');
+          const entry = { date: `${d}-${MON[parseInt(m, 10) - 1]}-${y}`, _key: dateKey };
+          let anyTabData = false;
+
+          tabDefs.forEach(({ id }) => {
+            const heldRows = tabRows[id].filter(r => buyDates[r.ticker] && buyDates[r.ticker] <= dateKey);
+            let invested = 0, value = 0;
+            const symbols = {}, tickersOut = [];
+            heldRows.forEach(r => {
+              const sh = sharesAtDateGlobal(r.ticker, dateKey, currentSharesByTab[id]);
+              const close = histCloses[r.ticker]?.[dateKey];
+              if (sh <= 0 || close == null) return;
+              invested += sh * r.avgPrice;
+              value    += sh * close;
+              symbols[r.ticker] = close;
+              tickersOut.push(r.ticker);
+            });
+
+            if (!tickersOut.length) { entry[id] = null; return; }
+            anyTabData = true;
+            const totalChange = value - invested;
+            const prevValue = prevValueByTab[id];
+            entry[id] = {
+              totalInvested: invested,
+              currentValue:  value,
+              dailyChange:   prevValue != null ? value - prevValue : 0,
+              totalChange,
+              pctChange:     invested > 0 ? totalChange / invested * 100 : 0,
+              spyPct: '', annualReturn: '', spyReturn: '',
+              _tickers: tickersOut,
+              _symbols: symbols,
+            };
+            prevValueByTab[id] = value;
+          });
+
+          if (anyTabData) newEntries.push(entry);
+        }
+      }
+      if (progressCb) progressCb(dateKey);
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    if (!newEntries.length) { console.log('[Log] Backfill: no missing trading days found in range'); return { added: 0 }; }
+
+    const merged = [...raw, ...newEntries].sort((a, b) => (b._key || '').localeCompare(a._key || ''));
+    localStorage.setItem('alphapicks_log', JSON.stringify(merged));
+    console.log(`[Log] Backfill complete — added ${newEntries.length} historical entries (${earliest} → ${todayKey})`);
+    return { added: newEntries.length, earliest, latest: todayKey, log: merged };
+  }
+  window.backfillHistoricalLog = backfillHistoricalLog;
+
+  // Checks whether recently completed trading days have a REAL log entry (not just the
+  // coarse invested=0 placeholder that backfillPortfolioHistory writes for older gaps).
+  // If not, attempts a real per-day backfill (PC was asleep at 4:10 PM ET one or more days).
   // Runs once per page load, after tickers/rows are populated.
+  //
+  // This used to stop after fixing the single most-recently-completed missing day, so a run
+  // of several consecutive missed days (PC off for over a week) left the older days in that
+  // run permanently uncaught by the real per-day fetch -- they'd only ever get the naive,
+  // totalInvested=0 reconstruction from backfillPortfolioHistory instead. Walking further back
+  // and treating _backfilled entries as still-missing lets each page load progressively repair
+  // the whole run with real closes/cost-basis, a few days at a time, until the gap is gone.
   async function checkMissingLogEntry() {
     if (backfillAttempted) return;
     backfillAttempted = true;
@@ -4298,21 +5108,22 @@
     const etStr  = new Date().toLocaleString('en-US', { timeZone: 'America/New_York' });
     const etNow  = new Date(etStr);
     const fmt    = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const raw    = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
+    const hasReal = key => JSON.parse(localStorage.getItem('alphapicks_log') || '[]')
+      .some(e => (e._key === key || e.date === key) && !e._backfilled);
 
-    // Walk back up to 5 calendar days to find the most recent completed trading day
+    // Walk back up to 30 calendar days, backfilling every missing/naive-only trading day
+    // found, until we reach one that already has a real entry (the gap ends there).
     const start = new Date(etNow);
     if (etNow.getHours() < 16) start.setDate(start.getDate() - 1); // today hasn't closed yet
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 30; i++) {
       const key = fmt(start);
       const dow = start.getDay();
       const isHoliday = usMarketHolidays(start.getFullYear()).has(key);
       if (dow !== 0 && dow !== 6 && !isHoliday) {
-        if (raw.some(e => e._key === key || e.date === key)) break; // entry exists
-        console.log('[Log] Missing entry for', key, '— PC was likely asleep. Backfilling…');
+        if (hasReal(key)) break; // real entry exists — gap ends here
+        console.log('[Log] Missing/naive entry for', key, '— backfilling real data…');
         await backfillLogEntry(key);
-        break;
       }
       start.setDate(start.getDate() - 1);
     }
@@ -4411,7 +5222,7 @@
     clearTimeout(autoRefreshPollTimer);
     const delay = isUserLikelySleeping() ? sleepMs : awakeMs;
     autoRefreshPollTimer = setTimeout(async () => {
-      await fetchPrices('yahoo');
+      await fetchPrices();
       schedulePoll(awakeMs, sleepMs);
     }, delay);
   }
@@ -4428,20 +5239,20 @@
     };
 
     if (session === 'CLOSED') {
-      atBoundary(2, 0, () => { fetchPrices('fmp'); scheduleAutoRefresh(); });
+      atBoundary(2, 0, () => { fetchPrices(); scheduleAutoRefresh(); });
 
     } else if (session === 'PRE') {
       schedulePoll(5 * 60 * 1000, 15 * 60 * 1000);
       atBoundary(9, 30, () => {
         clearTimeout(autoRefreshPollTimer);
-        fetchPrices('fmp'); scheduleAutoRefresh();
+        fetchPrices(); scheduleAutoRefresh();
       });
 
     } else if (session === 'REGULAR') {
       schedulePoll(2 * 60 * 1000, 10 * 60 * 1000);
       atBoundary(16, 0, () => {
         clearTimeout(autoRefreshPollTimer);
-        fetchPrices('fmp'); scheduleAutoRefresh();
+        fetchPrices(); scheduleAutoRefresh();
       });
 
     } else {  // POST
@@ -4450,7 +5261,7 @@
         clearTimeout(autoRefreshPollTimer);
         // Fetch once at the 8 PM boundary to capture the true final post-market print —
         // this frozen price is what stays displayed through CLOSED (evening + weekend).
-        fetchPrices('fmp'); scheduleAutoRefresh();
+        fetchPrices(); scheduleAutoRefresh();
       });
     }
   }
@@ -4481,16 +5292,19 @@
         const el = document.getElementById(id);
         if (el?.innerHTML) totals[id] = el.innerHTML;
       });
-      // Cache full tbody HTML so Brokerage/IRA tables restore instantly on reload
+      // Cache full tbody HTML so Brokerage/IRA/QG&I tables restore instantly on reload.
+      // Without qgi-tbody here, QG&I's first paint depends on the async checkSchwabStatus()
+      // -> renderFromSchwabCache() chain instead of this synchronous script-load-time restore,
+      // so it sits visibly blank while the other 3 tabs already show cached data.
       const tableHTML = {};
-      ['brok-stocks-tbody','brok-etfs-tbody','ira-tbody','picks-tbody'].forEach(id => {
+      ['brok-stocks-tbody','brok-etfs-tbody','ira-tbody','picks-tbody','qgi-tbody'].forEach(id => {
         const el = document.getElementById(id);
         if (el?.innerHTML) tableHTML[id] = el.innerHTML;
       });
       // Cache tabStats so restoreFromPriceCache can pre-seed them, preventing
       // renderAlphaPicksTab() from resetting dailyGL to 0 before fetchPrices() runs.
       const tabStatsSnap = {};
-      ['brokerage','ira','alphapicks'].forEach(t => {
+      ['brokerage','ira','alphapicks','qgi'].forEach(t => {
         const s = tabStats[t];
         if (s?.ready) tabStatsSnap[t] = {
           invested: s.invested, value: s.value,
@@ -4602,10 +5416,19 @@
   // TAB NAVIGATION
   // ═══════════════════════════════════════════════════════════════
 
-  const TAB_IDS = ['brokerage', 'ira', 'alphapicks', 'allocation'];
+  const TAB_IDS = ['brokerage', 'ira', 'alphapicks', 'qgi', 'allocation'];
 
-  const TAB_TITLES = { brokerage: 'Brokerage', ira: 'Retirement', alphapicks: 'Alpha Picks Portfolio', allocation: 'Asset Allocation' };
+  const TAB_TITLES = { brokerage: 'Brokerage', ira: 'Retirement', alphapicks: 'Alpha Picks Portfolio', qgi: 'Quant Growth & Income', allocation: 'Asset Allocation' };
 
+  // Pure UI state change — no network calls of any kind. All 4 position tabs (Brokerage, IRA,
+  // Alpha Picks, QG&I) are kept fresh by the fixed background schedule (syncSchwab's periodic
+  // interval + its staggered per-group price-refresh calls), which runs identically regardless
+  // of which tab is visible. Switching tabs just displays whatever that background cycle most
+  // recently fetched — it must never itself trigger a fetch. (Previously this DID trigger
+  // syncSchwab/refreshGroupPrices on a >60s staleness check, so simply tabbing back and forth
+  // after being on one tab for over a minute — extremely common in real use — re-triggered a
+  // full sync. Removed once QG&I was folded into the main background cycle above, so nothing
+  // here depends on tab-switch-triggered fetches anymore.)
   function switchTab(id) {
     TAB_IDS.forEach(t => {
       document.getElementById(`tab-${t}`).classList.toggle('active', t === id);
@@ -4614,10 +5437,7 @@
     document.getElementById('page-title').textContent = TAB_TITLES[id] || 'Alpha Picks Portfolio';
     if (id === 'allocation') updateAllocTabStats();
     renderTabStats(id);
-    // Lazy-load Brokerage/Retirement content first time tab is opened
-    // Only re-sync if data is stale (>60s old) — avoids redundant fetches on quick tab switches
-    const syncStale = !schwabSyncedAt || (Date.now() - schwabSyncedAt.getTime() > 60_000);
-    if ((id === 'brokerage' || id === 'ira' || id === 'alphapicks') && schwabConnected && syncStale) syncSchwab(false);
+    paintActiveTabStatus(); // show the newly-active tab's N/M live count immediately
     if (id === 'allocation') renderAllocationTab();
     // Remember active tab
     try { localStorage.setItem('alphapicks_active_tab', id); } catch (_) {}
@@ -4637,27 +5457,110 @@
   let schwabHashMap   = {};  // plain accountNumber → hashValue (for transactions endpoint)
   let _lastAllocData  = JSON.parse(localStorage.getItem('alphapicks_alloc_cache') || 'null'); // persisted across reloads
 
-  // Tagged tickers (Alpha Picks) — loaded from localStorage
+  // ── Group registry ────────────────────────────────────────────────────────
+  // Alpha Picks and Quant Growth & Income (QG&I) share one render/calc engine,
+  // parametrised by this config. A ticker may belong to BOTH groups (e.g. B); the
+  // shared portion is split via the per-ticker allocation map (see getGroupAlloc).
+  const GROUPS = {
+    alphapicks: { id:'alphapicks', label:'Alpha Picks', tbody:'picks-tbody', taggedKey:'alphapicks_tagged',
+                  marker:'★', markerClass:'', benchmark:'SPY',  benchmarkLabel:'S&P 500' },
+    qgi:        { id:'qgi',        label:'QG&I',        tbody:'qgi-tbody',   taggedKey:'qgi_tagged',
+                  marker:'◆', markerClass:'qgi',       benchmark:'VYM',  benchmarkLabel:'Vanguard High Div (VYM)' },
+  };
+
+  // Tagged tickers — loaded from localStorage, per group
   const INITIAL_TAGGED = ['TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN'];
-  function getTagged() {
+  const INITIAL_TAGGED_QGI = ['KIM','COP','MPC','VLO','CVX','B','RTX','PSX','ADC','FRT','CTRE','XHR','RY','THG',
+                              'AEP','EWBC','AGM','THFF','GRC','FAF','DRH','R','MDLZ','RBCAA','EPR','RLJ','XOM','JBSS','PNC','SRCE'];
+  // Static company-name fallback so QG&I names always render even if Schwab returns no
+  // description and the Yahoo name lookup is throttled. Used only when nothing better exists.
+  const QGI_NAMES = {
+    KIM:'Kimco Realty', COP:'ConocoPhillips', MPC:'Marathon Petroleum', VLO:'Valero Energy',
+    CVX:'Chevron', B:'Barrick Mining', RTX:'RTX Corporation', PSX:'Phillips 66', ADC:'Agree Realty',
+    FRT:'Federal Realty Inv. Trust', CTRE:'CareTrust REIT', XHR:'Xenia Hotels & Resorts',
+    RY:'Royal Bank of Canada', THG:'Hanover Insurance Group', AEP:'American Electric Power',
+    EWBC:'East West Bancorp', AGM:'Federal Agricultural Mortgage', THFF:'First Financial Corp',
+    GRC:'Gorman-Rupp', FAF:'First American Financial', DRH:'DiamondRock Hospitality',
+    R:'Ryder System', MDLZ:'Mondelez International', RBCAA:'Republic Bancorp', EPR:'EPR Properties',
+    RLJ:'RLJ Lodging Trust', XOM:'Exxon Mobil', JBSS:'John B. Sanfilippo & Son',
+    PNC:'PNC Financial Services', SRCE:'1st Source Corporation',
+  };
+  function _seedFor(group) { return group === 'qgi' ? INITIAL_TAGGED_QGI : INITIAL_TAGGED; }
+  function getTagged(group = 'alphapicks') {
+    const key = (GROUPS[group] || GROUPS.alphapicks).taggedKey;
     try {
-      const s = localStorage.getItem('alphapicks_tagged');
-      return s ? JSON.parse(s) : [...INITIAL_TAGGED];
-    } catch { return [...INITIAL_TAGGED]; }
+      const s = localStorage.getItem(key);
+      return s ? JSON.parse(s) : [..._seedFor(group)];
+    } catch { return [..._seedFor(group)]; }
   }
-  function saveTagged(arr) {
-    try { localStorage.setItem('alphapicks_tagged', JSON.stringify(arr)); } catch (_) {}
+  function saveTagged(arr, group = 'alphapicks') {
+    const key = (GROUPS[group] || GROUPS.alphapicks).taggedKey;
+    try { localStorage.setItem(key, JSON.stringify(arr)); } catch (_) {}
   }
-  // Seed on first run
-  if (!localStorage.getItem('alphapicks_tagged')) saveTagged(INITIAL_TAGGED);
+  // Which groups is a symbol tagged in?
+  function groupsForSymbol(sym) {
+    return Object.keys(GROUPS).filter(g => getTagged(g).includes(sym));
+  }
+  // Seed on first run -- ONLY after the server pull (window._storeReady) has resolved.
+  // This used to run synchronously at parse time, racing loadStore()'s async /store fetch.
+  // On any origin/browser/profile where local localStorage starts out empty (fresh profile,
+  // different hostname than usual, cleared site data), it looked identical to "never tagged
+  // anything" and seeded the hardcoded INITIAL_TAGGED fallback -- and localStorage.setItem is
+  // wrapped to immediately push every write to the server, so that stale seed (frozen before
+  // FN and 9 later additions) clobbered the real, larger tagged set server-side before the
+  // real value even finished loading. getTagged() already falls back to the hardcoded seed
+  // in-memory for any reads that happen before this resolves, so delaying only the persisted
+  // write (the part with the server side-effect) is safe.
+  (async () => {
+    try { await window._storeReady; } catch (_) {}
+    if (!localStorage.getItem('alphapicks_tagged')) saveTagged(INITIAL_TAGGED, 'alphapicks');
+    if (!localStorage.getItem('qgi_tagged'))        saveTagged(INITIAL_TAGGED_QGI, 'qgi');
+  })();
+
+  // ── Per-ticker group allocation (for symbols held in >1 group) ──────────────
+  // Only shared tickers need an entry. Shape: { SYM: { qgi:{shares,cost,apBaseline}, ... } }
+  // apBaseline = the OTHER group's share count captured when the overlap was created,
+  // so a group only claims shares that appear ABOVE that baseline (handles the pre-sync
+  // window where the new lot hasn't settled yet — avoids stealing the other group's shares).
+  function getGroupAlloc() {
+    try { return JSON.parse(localStorage.getItem('group_alloc') || '{}'); } catch { return {}; }
+  }
+  function saveGroupAlloc(obj) {
+    try { localStorage.setItem('group_alloc', JSON.stringify(obj)); } catch (_) {}
+  }
+  // Returns this group's share/cost slice of a (possibly shared) position.
+  // total = Schwab aggregate shares, totalCost = Schwab aggregate cost basis.
+  function sliceForGroup(sym, group, total, totalCost) {
+    const groups = groupsForSymbol(sym);
+    if (groups.length <= 1) return { shares: total, cost: totalCost }; // sole owner → whole position
+    const alloc = (getGroupAlloc()[sym]) || {};
+    const mine  = alloc[group];
+    if (mine) {
+      const shares = Math.max(0, Math.min(mine.shares, total - (mine.apBaseline ?? 0)));
+      const avg    = mine.shares > 0 ? (mine.cost / mine.shares) : 0;
+      return { shares, cost: shares * avg };
+    }
+    // No explicit slice for this group → it owns the remainder after the other groups' slices.
+    let otherShares = 0, otherCost = 0;
+    groups.filter(g => g !== group).forEach(g => {
+      const a = alloc[g]; if (!a) return;
+      const s = Math.max(0, Math.min(a.shares, total - (a.apBaseline ?? 0)));
+      const avg = a.shares > 0 ? (a.cost / a.shares) : 0;
+      otherShares += s; otherCost += s * avg;
+    });
+    return { shares: Math.max(0, total - otherShares), cost: Math.max(0, totalCost - otherCost) };
+  }
 
   // Buy dates for original positions (from Schwab brokerage CSV)
   const INITIAL_BUY_DATES = {
     // ── Alpha Picks (brokerage stocks) ──────────────────────────────────────
     TTMI: '2025-12-03', MU:   '2025-12-03', INCY: '2025-12-03',
-    PARR: '2025-12-03', W:    '2025-12-03', TIGO: '2025-12-16',
-    B:    '2026-01-05', NEM:  '2026-01-16', DY:   '2026-02-02',
+    PARR: '2025-12-03', W:    '2025-12-03', TIGO: '2025-12-15',
+    B:    '2026-01-02', NEM:  '2026-01-16', DY:   '2026-02-02',
     GM:   '2026-02-17', FN:   '2026-03-02', LITE: '2026-03-16',
+    CSTM: '2026-04-01', NEXA: '2026-04-15', MXL:  '2026-05-15',
+    SNDK: '2026-06-01', SNEX: '2026-06-15', ICHR: '2026-07-01',
+    BTSG: '2026-07-15',
     // ── Brokerage ETFs / other ───────────────────────────────────────────────
     SPY:  '2023-09-12', MSFT: '2024-12-04', AIRR: '2024-08-02',
     NEOS: '2025-09-11', LDQH: '2025-04-14', CRDO: '2026-05-01', CGDV: '2026-05-13',
@@ -4670,6 +5573,15 @@
     // HGI has no exchange symbol — key 'HGI' / 'HGIII' used by the private-position code path
     HGI:   '2022-09-30',  // Fund I  — HGI Multifamily Credit Select Fund
     HGIII: '2026-06-02',  // Fund II — HGI Multifamily Credit II Select Fund (this week)
+    // ── Quant Growth & Income (QG&I) — batch bought 2026-07-22 (B also an Alpha Pick) ──
+    KIM:  '2026-07-22', COP:  '2026-07-22', MPC:  '2026-07-22', VLO:  '2026-07-22',
+    CVX:  '2026-07-22', RTX:  '2026-07-22', PSX:  '2026-07-22', ADC:  '2026-07-22',
+    FRT:  '2026-07-22', CTRE: '2026-07-22', XHR:  '2026-07-22', RY:   '2026-07-22',
+    THG:  '2026-07-22', AEP:  '2026-07-22', EWBC: '2026-07-22', AGM:  '2026-07-22',
+    THFF: '2026-07-22', GRC:  '2026-07-22', FAF:  '2026-07-22', DRH:  '2026-07-22',
+    R:    '2026-07-22', MDLZ: '2026-07-22', RBCAA:'2026-07-22', EPR:  '2026-07-22',
+    RLJ:  '2026-07-22', XOM:  '2026-07-22', JBSS: '2026-07-22', PNC:  '2026-07-22',
+    SRCE: '2026-07-22',
   };
   function getBuyDates() {
     try {
@@ -4740,6 +5652,7 @@
           const brokerageAccts = schwabAccounts.filter(
             a => !getRetirementAccountNums().includes(a.securitiesAccount?.accountNumber));
           renderAlphaPicksFromSchwab(brokerageAccts);
+          renderQGIFromSchwab(brokerageAccts);
         } else {
           cell.innerHTML = fmtBuyDate(newDate);
         }
@@ -4920,11 +5833,12 @@
     brokerage:  { invested: 0, value: 0, dailyGL: 0, totalGL: 0, irrRate: null, spyIrrRate: null, spySimpleRet: null, ready: false },
     ira:        { invested: 0, value: 0, dailyGL: 0, totalGL: 0, irrRate: null, spyIrrRate: null, spySimpleRet: null, ready: false },
     alphapicks: { invested: 0, value: 0, dailyGL: 0, totalGL: 0, irrRate: null, spyIrrRate: null, spySimpleRet: null, ready: false },
+    qgi:        { invested: 0, value: 0, dailyGL: 0, totalGL: 0, irrRate: null, spyIrrRate: null, spySimpleRet: null, benchIrrRate: null, benchSimpleRet: null, ready: false },
     allocation: { invested: 0, value: 0, dailyGL: 0, totalGL: 0, irrRate: null, spyIrrRate: null, spySimpleRet: null, ready: false },
   };
 
   function updateAllocTabStats() {
-    const tabs    = ['brokerage', 'ira', 'alphapicks'];
+    const tabs    = ['brokerage', 'ira', 'alphapicks', 'qgi'];
     const ready   = tabs.some(t => tabStats[t].ready);
     let invested  = 0, value = 0, dailyGL = 0, totalGL = 0;
     tabs.forEach(t => {
@@ -4958,7 +5872,7 @@
   (() => {
     try {
       const c = JSON.parse(localStorage.getItem('schwab_tab_irr_cache') || '{}');
-      ['brokerage','ira','alphapicks'].forEach(id => {
+      ['brokerage','ira','alphapicks','qgi'].forEach(id => {
         if (c[id]?.irrRate     != null) tabStats[id].irrRate     = c[id].irrRate;
         if (c[id]?.spyIrrRate  != null) tabStats[id].spyIrrRate  = c[id].spyIrrRate;
         if (c[id]?.spySimpleRet != null) tabStats[id].spySimpleRet = c[id].spySimpleRet;
@@ -4977,6 +5891,14 @@
     if (activeTabId() !== tabId) return;
     const s = tabStats[tabId];
     if (!s || !s.ready) return;
+    // Tab-agnostic on purpose: renderTabStats runs for whichever tab is actually active on
+    // load, unlike the Alpha-Picks-specific fetchPrices() this used to live in, which silently
+    // never fired if a different tab (e.g. Brokerage) happened to be active. All three checks
+    // below dedupe internally (on the alert's timestamp / on the calendar date / per checkpoint
+    // per date), so calling them here on every tab's render is harmless.
+    checkPriceSourceAlert();
+    checkDailyFmpUsage();
+    checkFmpQualityCheckpoint();
 
     const fmtS = v => (v >= 0 ? '+$' : '-$') + fmtD(Math.abs(v));
     const fmtP = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
@@ -5060,6 +5982,7 @@
       schwabAccounts = accounts;
       renderBrokerageTab(brokerageAccts);
       renderAlphaPicksFromSchwab(brokerageAccts);
+      renderQGIFromSchwab(brokerageAccts);
       renderIRATab(iraAccts);
       fillMissingBrokerageNames();
       restoreIRRCache();
@@ -5067,7 +5990,7 @@
       const session = getSessionFromClock();
       if (session !== 'CLOSED') {
         fetchPrices();
-        setTimeout(() => refreshBrokeragePrices(), 2000); // D1: stagger brokerage/IRA wave to avoid FMP rate-limit overlap
+        setTimeout(() => refreshBrokeragePrices(), 4000); // D1: stagger brokerage/IRA wave to avoid FMP rate-limit overlap and proxy queue overload
       }
       const age = Math.round((Date.now() - ts) / 60000);
       document.getElementById('brok-sync-label').textContent = `Cache (${age}m ago) — syncing…`;
@@ -5459,6 +6382,7 @@
         _lastRenderedFingerprint = posFingerprint;
         renderBrokerageTab(brokerageAccts);
         renderAlphaPicksFromSchwab(brokerageAccts);
+        renderQGIFromSchwab(brokerageAccts);
         renderIRATab(iraAccts);
         fillMissingBrokerageNames();
       }
@@ -5471,12 +6395,15 @@
       const apLbl = document.getElementById('alphapicks-sync-label');
       if (apLbl) apLbl.textContent = `Last synced: ${ts}`;
 
-      // Trigger price refresh for active tab + live prices for brokerage/IRA
-      // Skip if prices were already fetched within the last 60s to avoid redundant blink
+      // Trigger price refresh for ALL tabs (not just the active one) on the same fixed background
+      // schedule this whole sync cycle runs on. Skip if prices were already fetched within the
+      // last 60s to avoid redundant blink. Staggered so the 3 FMP waves (Alpha Picks, Brokerage/
+      // IRA, QG&I's 30 tickers) don't all hit the free-tier rate limit at once.
       const activeTabNow = TAB_IDS.find(t => document.getElementById(`tab-${t}`)?.classList.contains('active'));
       const pricesStale = !lastPricesFetchAt || (Date.now() - lastPricesFetchAt > 60_000);
       if (pricesStale) fetchPrices(); // always fetch so intraday snaps are pushed regardless of active tab
-      setTimeout(() => refreshBrokeragePrices(), 2000); // D1: stagger brokerage/IRA FMP wave to avoid rate-limit overlap
+      setTimeout(() => refreshBrokeragePrices(), 4000); // D1: stagger brokerage/IRA FMP wave to avoid rate-limit overlap and proxy queue overload
+      setTimeout(() => { try { refreshGroupPrices('qgi'); } catch(_) {} }, 8000); // stagger QG&I's 30-ticker wave behind the other two
 
       // Auto-load IRR data after every sync
       loadIRRData();
@@ -5518,10 +6445,14 @@
     const glPct     = costBasis ? (gl / costBasis) * 100 : 0;
     const glCls     = gl >= 0 ? 'gain' : 'loss';
     const sharesStr = fmtShares(shares);
+    const _inAP  = getTagged('alphapicks').includes(sym);
+    const _inQGI = getTagged('qgi').includes(sym);
     const tagCell   = showTagBtn
-      ? `<td class="center"><button class="tag-btn ${isTaggedPos ? 'tagged' : ''}"
-           title="${isTaggedPos ? 'Remove from Alpha Picks' : 'Add to Alpha Picks'}"
-           onclick="toggleTag('${sym}', this)">${isTaggedPos ? '★' : '☆'}</button></td>`
+      ? `<td class="center" style="white-space:nowrap"><button class="tag-btn ${_inAP ? 'tagged' : ''}" data-group="alphapicks" data-sym="${sym}"
+           title="${_inAP ? 'Remove from Alpha Picks' : 'Add to Alpha Picks'}"
+           onclick="toggleTag('${sym}', this, 'alphapicks')">${_inAP ? '★' : '☆'}</button><button class="tag-btn qgi ${_inQGI ? 'tagged' : ''}" data-group="qgi" data-sym="${sym}"
+           title="${_inQGI ? 'Remove from QG&I' : 'Add to QG&I'}"
+           onclick="toggleTag('${sym}', this, 'qgi')">${_inQGI ? '◆' : '◇'}</button></td>`
       : '';
     return { sym, name, shares, avgCost, mktVal, costBasis, gl, glPct, glCls, sharesStr, tagCell };
   }
@@ -5532,7 +6463,7 @@
 
   async function fillMissingBrokerageNames() {
     const nameCells = [];
-    ['brok-stocks-tbody','brok-etfs-tbody','ira-tbody','picks-tbody'].forEach(id => {
+    ['brok-stocks-tbody','brok-etfs-tbody','ira-tbody','picks-tbody','qgi-tbody'].forEach(id => {
       (document.getElementById(id)?.querySelectorAll('tr') ?? []).forEach(tr => {
         const sym = (tr.dataset.symbol || tr.querySelector('.ticker-badge')?.textContent || '').trim();
         if (!sym || sym === '?' || sym === '—' || sym === 'PRIVATE') return;
@@ -5544,8 +6475,11 @@
 
     // Fetch only uncached symbols
     const syms = [...new Set(nameCells.map(r => r.sym).filter(s => !brokerageNameCache[s]))];
-    if (syms.length) {
-      await Promise.all(syms.map(async sym => {
+    // Batch (6 at a time) so a large group (QG&I's 30) doesn't fire 30 concurrent Yahoo
+    // calls that get proxy/rate throttled — that left ~12 names blank.
+    for (let i = 0; i < syms.length; i += 6) {
+      const batch = syms.slice(i, i + 6);
+      await Promise.all(batch.map(async sym => {
         try {
           const url = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1d&range=1d&_cb=${Date.now()}`;
           const data = await fetchJSON(url);
@@ -5583,15 +6517,28 @@
     stocksTbody.innerHTML = '';
     etfsTbody.innerHTML   = '';
     const tagged    = getTagged();
+    const taggedQGI = getTagged('qgi');
     const buyDates  = getAllBuyDates();
     let stockIdx = 0, etfIdx = 0;
 
     let sTotCost = 0, sTotVal = 0, sTotGL = 0, sDailyGL = 0;
     let eTotCost = 0, eTotVal = 0, eTotGL = 0, eDailyGL = 0;
 
+    // Buy date for a position — HGI (no symbol) keys off mktVal (with the marketValue=0 fallback).
+    const _bDateFor = pos => {
+      const s = pos.instrument?.symbol ?? '';
+      if (s) return buyDates[s] ?? '';
+      const rawAvg = pos.averageLongPrice ?? pos.taxLotAverageLongPrice ?? pos.averagePrice ?? 1;
+      const mv = pos.marketValue || (rawAvg * (pos.longQuantity || 0));
+      return buyDates[mv < 100000 ? 'HGIII' : 'HGI'] ?? '';
+    };
     accounts.forEach(acct => {
       const acctNum = acct.securitiesAccount?.accountNumber ?? '';
-      (acct.securitiesAccount?.positions ?? []).forEach(pos => {
+      // Sort by buy date, newest first (matches Alpha Picks / QG&I / IRA). Stocks and ETFs are
+      // routed to separate tables below, so sorting the source list orders both.
+      [...(acct.securitiesAccount?.positions ?? [])]
+        .sort((a, b) => (_bDateFor(b) || '0000-00-00').localeCompare(_bDateFor(a) || '0000-00-00'))
+        .forEach(pos => {
         const shares = pos.longQuantity ?? 0;
         if (shares === 0) return;
         const sym = pos.instrument?.symbol ?? '';
@@ -5628,7 +6575,7 @@
           stocksTbody.appendChild(tr);
           return;
         }
-        if (tagged.includes(sym)) return;
+        if (tagged.includes(sym) || taggedQGI.includes(sym)) return;
         const { name, avgCost, mktVal, costBasis, gl, glPct, glCls, sharesStr, tagCell } =
           buildPositionRow(pos, false, true);
 
@@ -5646,7 +6593,7 @@
           tr.innerHTML = `
             <td class="center"><span class="num">${++etfIdx}</span></td>
             <td class="date-cell right" style="font-size:0.82rem;color:#8b949e;white-space:nowrap">${fmtBuyDate(buyDates[sym])}</td>
-            <td><span class="ticker-badge">${sym}</span><button class="tag-btn" title="Add to Alpha Picks" onclick="toggleTag('${sym}', this)" style="margin-left:4px;vertical-align:middle">☆</button></td>
+            <td><span class="ticker-badge">${sym}</span><button class="tag-btn ${getTagged('alphapicks').includes(sym)?'tagged':''}" data-group="alphapicks" data-sym="${sym}" title="${getTagged('alphapicks').includes(sym)?'Remove from Alpha Picks':'Add to Alpha Picks'}" onclick="toggleTag('${sym}', this, 'alphapicks')" style="margin-left:4px;vertical-align:middle">${getTagged('alphapicks').includes(sym)?'★':'☆'}</button><button class="tag-btn qgi ${getTagged('qgi').includes(sym)?'tagged':''}" data-group="qgi" data-sym="${sym}" title="${getTagged('qgi').includes(sym)?'Remove from QG&I':'Add to QG&I'}" onclick="toggleTag('${sym}', this, 'qgi')" style="margin-left:2px;vertical-align:middle">${getTagged('qgi').includes(sym)?'◆':'◇'}</button></td>
             <td class="company-name" style="font-size:0.82rem">${name}</td>
             <td class="right">${sharesStr}</td>
             <td class="right">$${fmtD(avgCost)}</td>
@@ -5665,7 +6612,7 @@
           tr.innerHTML = `
             <td class="center"><span class="num">${++stockIdx}</span></td>
             <td class="date-cell right" style="font-size:0.82rem;color:#8b949e;white-space:nowrap">${fmtBuyDate(buyDates[sym])}</td>
-            <td><span class="ticker-badge">${sym}</span><button class="tag-btn" title="Add to Alpha Picks" onclick="toggleTag('${sym}', this)" style="margin-left:4px;vertical-align:middle">☆</button></td>
+            <td><span class="ticker-badge">${sym}</span><button class="tag-btn ${getTagged('alphapicks').includes(sym)?'tagged':''}" data-group="alphapicks" data-sym="${sym}" title="${getTagged('alphapicks').includes(sym)?'Remove from Alpha Picks':'Add to Alpha Picks'}" onclick="toggleTag('${sym}', this, 'alphapicks')" style="margin-left:4px;vertical-align:middle">${getTagged('alphapicks').includes(sym)?'★':'☆'}</button><button class="tag-btn qgi ${getTagged('qgi').includes(sym)?'tagged':''}" data-group="qgi" data-sym="${sym}" title="${getTagged('qgi').includes(sym)?'Remove from QG&I':'Add to QG&I'}" onclick="toggleTag('${sym}', this, 'qgi')" style="margin-left:2px;vertical-align:middle">${getTagged('qgi').includes(sym)?'◆':'◇'}</button></td>
             <td class="company-name" style="font-size:0.82rem">${name}</td>
             <td class="right">${sharesStr}</td>
             <td class="right">$${fmtD(avgCost)}</td>
@@ -5727,6 +6674,18 @@
         && p.instrument?.assetType !== 'CASH_EQUIVALENT');
       if (!visible.length) return;
 
+      // Sort by buy date, newest first (matches Alpha Picks / QG&I). HGI (no symbol) keys off
+      // mktVal — but Schwab returns marketValue=0 for Fund I, so use the SAME fallback the display
+      // uses (marketValue || avgPrice×shares) to tell Fund I (HGI) from Fund II (HGIII).
+      const _dateFor = pos => {
+        const s = pos.instrument?.symbol ?? '';
+        if (s) return buyDates[s] ?? '';
+        const rawAvg = pos.taxLotAverageLongPrice ?? pos.averageLongPrice ?? pos.averagePrice ?? 0;
+        const mv = pos.marketValue || (rawAvg * (pos.longQuantity || 0));
+        return buyDates[mv < 110000 ? 'HGIII' : 'HGI'] ?? '';
+      };
+      visible.sort((a, b) => (_dateFor(b) || '0000-00-00').localeCompare(_dateFor(a) || '0000-00-00'));
+
       // Separator row only when multiple accounts need distinguishing
       if (multiAcct) {
         const typeLabel = getTypeLabel(type);
@@ -5736,7 +6695,7 @@
         tbody.appendChild(sepRow);
       }
 
-      visible.forEach(pos => {
+      const renderIRARow = pos => {
         const sym    = pos.instrument?.symbol ?? '';
         const shares = pos.longQuantity ?? 0;
         const rawAvgCost = pos.taxLotAverageLongPrice ?? pos.averageLongPrice ?? pos.averagePrice ?? 0;
@@ -5794,7 +6753,21 @@
           <td class="right irr-muted" data-cell="irr">—</td>
           <td class="right weight">—</td>`;
         tbody.appendChild(tr);
-      });
+      };
+
+      // Display-only grouping: HGI's two private funds (no ticker symbol) are shown together
+      // under a "Fund" category, separate from publicly-traded securities, instead of being
+      // interleaved by buy date. Purely visual — sort order within each group, totals, and all
+      // downstream calc (IRR/G-L/dataset attributes) are untouched.
+      const publicPos = visible.filter(p => p.instrument?.symbol);
+      const fundPos   = visible.filter(p => !p.instrument?.symbol);
+      publicPos.forEach(renderIRARow);
+      if (fundPos.length) {
+        const fundHeaderRow = document.createElement('tr');
+        fundHeaderRow.innerHTML = `<td colspan="13" style="padding:.4rem .75rem .2rem 1.1rem;color:#8b949e;font-size:.72rem;font-weight:600;letter-spacing:.05em;border-top:1px solid #21262d;text-transform:uppercase">Fund</td>`;
+        tbody.appendChild(fundHeaderRow);
+      }
+      fundPos.forEach(renderIRARow);
     });
 
     tabStats.ira = {
@@ -5813,11 +6786,21 @@
     savePriceCache();
   }
 
-  function renderAlphaPicksFromSchwab(brokerageAccounts) {
-    const tagged = getTagged();
-    if (!tagged.length) return;
-    const tbody = document.getElementById('picks-tbody');
+  // Backward-compatible wrappers — all existing callers keep working.
+  function renderAlphaPicksFromSchwab(brokerageAccounts) { renderGroupFromSchwab('alphapicks', brokerageAccounts); }
+  function renderQGIFromSchwab(brokerageAccounts)        { renderGroupFromSchwab('qgi', brokerageAccounts); }
+
+  // Group-generalised render: Alpha Picks + QG&I share this engine.
+  // Shared tickers (in >1 group) are split via sliceForGroup so no shares are double-counted.
+  function renderGroupFromSchwab(group, brokerageAccounts) {
+    const cfg = GROUPS[group]; if (!cfg) return;
+    const tagged = getTagged(group);
+    const tbody  = document.getElementById(cfg.tbody);
+    if (!tbody) return;
     tbody.innerHTML = '';
+    if (!tagged.length) { tabStats[group].ready = true; return; }
+    const priceCacheKey = group === 'qgi' ? 'qgi_price_cache' : 'alphapicks_price_cache';
+    const alloc = getGroupAlloc();
 
     const posMap = new Map();
     brokerageAccounts.forEach(acct => {
@@ -5833,25 +6816,32 @@
     let totCost = 0, totVal = 0, totGL = 0;
 
     const buyDates = getBuyDates();
-    // Sort tagged tickers by buy date descending (newest first); unknown dates sort last
-    const sortedTagged = [...tagged].sort((a, b) => {
-      const da = buyDates[a] ?? '0000-00-00';
-      const db = buyDates[b] ?? '0000-00-00';
-      return db.localeCompare(da);
-    });
+    // Buy date shown for this group: shared tickers use the group's allocation date.
+    const groupDate = sym => (alloc[sym]?.[group]?.buyDate) || buyDates[sym];
+    const sortedTagged = [...tagged].sort((a, b) => (groupDate(b) ?? '0000-00-00').localeCompare(groupDate(a) ?? '0000-00-00'));
 
-    sortedTagged.forEach((sym, idx) => {
+    let visibleIdx = 0;
+    sortedTagged.forEach((sym) => {
       const entry = posMap.get(sym);
       if (!entry) return;
       const { pos, acctNum } = entry;
-      const shares    = pos.longQuantity ?? 0;
-      const avgCost   = pos.taxLotAverageLongPrice ?? pos.averageLongPrice ?? pos.averagePrice ?? 0;
-      const mktVal    = pos.marketValue ?? 0;
-      const costBasis = avgCost * shares;
+      const totalShares = pos.longQuantity ?? 0;
+      const avgCost     = pos.taxLotAverageLongPrice ?? pos.averageLongPrice ?? pos.averagePrice ?? 0;
+      const totalMktVal = pos.marketValue ?? 0;
+      const totalCost   = avgCost * totalShares;
+      const curPrice    = totalShares > 0 ? totalMktVal / totalShares : avgCost;
+
+      // Split shared positions into this group's slice (whole position when sole owner).
+      const slice     = sliceForGroup(sym, group, totalShares, totalCost);
+      const shares    = slice.shares;
+      if (shares <= 0) return;                 // group owns none of this ticker yet (e.g. pre-sync)
+      const costBasis = slice.cost;
+      const rowAvg    = shares > 0 ? costBasis / shares : avgCost;
+      const mktVal    = curPrice * shares;
       const gl        = mktVal - costBasis;
       const glPct     = costBasis ? gl / costBasis * 100 : 0;
       const glCls     = gl >= 0 ? 'gain' : 'loss';
-      const curPrice  = shares > 0 ? mktVal / shares : avgCost;
+      const dstr      = groupDate(sym) ?? '';
 
       totCost += costBasis; totVal += mktVal; totGL += gl;
 
@@ -5863,55 +6853,50 @@
       tr.dataset.costBasis = costBasis;
       tr.dataset.mktVal    = mktVal;
       tr.dataset.acctNum   = acctNum;
-      tr.dataset.date      = buyDates[sym] ?? '';
+      tr.dataset.date      = dstr;
+      tr.dataset.group     = group;
 
       tr.innerHTML = `
-        <td class="center"><span class="num">${idx + 1}</span></td>
-        <td class="date-cell right" style="font-size:0.82rem;color:#8b949e;white-space:nowrap;cursor:pointer" title="Click to edit buy date" onclick="editBuyDate('${sym}', this)">${fmtBuyDate(buyDates[sym])}</td>
+        <td class="center"><span class="num">${++visibleIdx}</span></td>
+        <td class="date-cell right" style="font-size:0.82rem;color:#8b949e;white-space:nowrap;cursor:pointer" title="Click to edit buy date" onclick="editBuyDate('${sym}', this)">${fmtBuyDate(dstr)}</td>
         <td><span class="ticker-badge">${sym}</span></td>
-        <td class="company-name" style="font-size:0.82rem">${pos.instrument?.description ?? ''}</td>
+        <td class="company-name" style="font-size:0.82rem">${pos.instrument?.description || brokerageNameCache[sym] || QGI_NAMES[sym] || ''}</td>
         <td class="qty right">${fmtShares(shares)}</td>
-        <td class="pps right">$${fmtD(avgCost)}</td>
+        <td class="pps right">$${fmtD(rowAvg)}</td>
         <td class="right irr-muted" data-cell="cash">—</td>
         <td class="right cur-price">$${fmtPrice(curPrice)}</td>
         <td class="right cur-value ${glCls}">$${fmtD(mktVal)}</td>
         <td class="right gain-loss" data-cell="gl">${glCellHTML(gl, glPct)}</td>
         <td class="center">
           <button class="bell-btn" onclick="openAlerts(this.closest('tr'))">🔔</button>
-          <button class="tag-btn tagged" title="Remove from Alpha Picks" onclick="toggleTag('${sym}', this)">★</button>
+          <button class="tag-btn ${cfg.markerClass} tagged" data-group="${group}" data-sym="${sym}" title="Remove from ${cfg.label}" onclick="toggleTag('${sym}', this, '${group}')">${cfg.marker}</button>
         </td>
         <td class="right irr-muted" data-cell="irr">—</td>
         <td class="right weight">—</td>`;
       tbody.appendChild(tr);
     });
 
-    tabStats.alphapicks.invested = totCost;
-    tabStats.alphapicks.value    = totVal;
-    tabStats.alphapicks.totalGL  = totGL;
-    // Preserve dailyGL — it's price-derived and will be updated by the next fetchPrices()
-    // Resetting to 0 here causes the header to flash "—" unnecessarily on every sync
-    if (!tabStats.alphapicks.ready) tabStats.alphapicks.dailyGL = 0;
-    tabStats.alphapicks.ready    = true;
+    tabStats[group].invested = totCost;
+    tabStats[group].value    = totVal;
+    tabStats[group].totalGL  = totGL;
+    if (!tabStats[group].ready) tabStats[group].dailyGL = 0;
+    tabStats[group].ready    = true;
 
-    // Populate weight cells immediately from Schwab market values (same pattern as
-    // renderBrokerageTab / renderIRATab) so weights are never stuck at "—" between
-    // a sync and the next price fetch.
     if (totVal > 0) {
-      document.querySelectorAll('#picks-tbody tr[data-ticker]').forEach(r => {
+      document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`).forEach(r => {
         const w = r.querySelector('.weight');
         if (w) w.textContent = `${(parseFloat(r.dataset.mktVal || 0) / totVal * 100).toFixed(1)}%`;
       });
     }
 
     syncRows();
-    const activeTab = TAB_IDS.find(t => document.getElementById(`tab-${t}`)?.classList.contains('active'));
-    if (activeTab === 'alphapicks') renderTabStats('alphapicks');
+    const activeTab = activeTabId();
+    if (activeTab === group) renderTabStats(group);
     updateAllocTabStats(); renderTabStats('allocation');
 
     // Re-apply cached prices immediately so rows never show '—' after a table rebuild.
-    // fetchPrices() will overwrite with live data on its next scheduled run.
     try {
-      const raw = localStorage.getItem('alphapicks_price_cache');
+      const raw = localStorage.getItem(priceCacheKey);
       if (raw) {
         const c   = JSON.parse(raw);
         const age = Date.now() - (c.ts || 0);
@@ -5919,7 +6904,7 @@
         const maxAge = sess === 'REGULAR' ? 10*60*1000 : sess === 'CLOSED' ? 60*60*1000 : 20*60*1000;
         if (age <= maxAge) {
           (c.rowData || []).forEach(r => {
-            const row = document.querySelector(`#picks-tbody tr[data-ticker="${r.ticker}"]`);
+            const row = document.querySelector(`#${cfg.tbody} tr[data-ticker="${r.ticker}"]`);
             if (!row) return;
             if (r.price) row.dataset.price = r.price;
             if (r.value) row.dataset.value = r.value;
@@ -6024,7 +7009,7 @@
   // ═══════════════════════════════════════════════════════════════
 
   let _brokRefreshInProgress = false;
-  async function refreshBrokeragePrices() {
+  async function refreshBrokeragePrices(forceFmp = false) {
     if (_brokRefreshInProgress) return; // D1: skip if a run is already in flight
     _brokRefreshInProgress = true;
     const brokerageRows = Array.from(document.querySelectorAll(
@@ -6039,32 +7024,39 @@
     const isExt      = session !== 'REGULAR';
     const quoteMap   = {};
 
-    // FMP primary
-    const [fmpQuotes, fmpExtended] = await Promise.all([
-      Promise.all(allSymbols.map(fetchFMPQuote)),
-      isExt ? Promise.all(allSymbols.map(fetchFMPExtended)) : Promise.resolve(allSymbols.map(() => null))
-    ]);
-    allSymbols.forEach((sym, i) => {
-      if (fmpQuotes[i]) quoteMap[sym] = normaliseFMP(fmpQuotes[i], fmpExtended[i], session);
-    });
-    cacheEarningsDatesFromFMP(allSymbols, fmpQuotes);
+    // Schwab Market Data primary (one call, same OAuth token as positions).
+    Object.assign(quoteMap, await fetchSchwabQuotesBatched(allSymbols));
 
-    // Yahoo fallback
-    const missing = allSymbols.filter(s => !quoteMap[s]);
-    if (missing.length) {
-      const quoteUrl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${missing.join(',')}&formatted=false&_cb=${Date.now()}`;
-      const quoteData = await fetchJSON(quoteUrl);
-      (quoteData?.quoteResponse?.result ?? []).forEach(q => { quoteMap[q.symbol] = normaliseQuote(q); });
-      const stillMissing = missing.filter(s => !quoteMap[s]);
-      if (stillMissing.length) {
-        const fallbacks = await Promise.all(stillMissing.map(fetchTickerChart));
-        stillMissing.forEach((s, i) => { if (fallbacks[i]) quoteMap[s] = fallbacks[i]; });
-      }
+    // Yahoo fallback for anything Schwab missed (per-symbol chart, batched 6-at-a-time —
+    // same batching the old fallback used). Yahoo's v7 batch quote endpoint requires auth
+    // (401 as of 2026-07-27), hence the per-symbol chart API rather than a single batch call.
+    const stillNeeded2 = allSymbols.filter(s => !quoteMap[s]);
+    for (let i = 0; i < stillNeeded2.length; i += 6) {
+      const batch = stillNeeded2.slice(i, i + 6);
+      const res = await Promise.all(batch.map(s => fetchTickerChart(s).catch(() => null)));
+      batch.forEach((s, j) => { if (res[j]) quoteMap[s] = res[j]; });
     }
 
-    // Extended-hours fallback — mirrors the same two-tier logic used in fetchPrices:
-    //   Step 1: Yahoo v7 batch (live-tick preMarketPrice / postMarketPrice field).
-    //   Step 2: 1m chart (fetchExtendedHours) for any still unresolved.
+    // FMP backup — ONLY for symbols Schwab+Yahoo both missed, and ONLY during REGULAR hours. FMP's free
+    // tier is 250 calls/day total (confirmed 2026-07-30); the old FMP-first order fired for
+    // every symbol on every 2-20 min refresh regardless of session, blowing through that
+    // budget within minutes of market open every day. Logged via logFmpUsage so real-world
+    // volume after this change can be measured instead of estimated.
+    // forceFmp (from checkFmpQualityCheckpoint, 3x/day) targets every symbol and ignores the
+    // session gate — see the comment on this same pattern in fetchPrices().
+    const missing = forceFmp ? allSymbols.filter(s => FMP_COVERED_SYMBOLS.has(s)) : allSymbols.filter(s => !quoteMap[s]);
+    if (missing.length && (forceFmp || session === 'REGULAR')) {
+      const fmpQuotes = await fetchFMPQuotesBatched(missing);
+      const fmpUsed = [];
+      missing.forEach((sym, i) => {
+        if (fmpQuotes[i]) { quoteMap[sym] = normaliseFMP(fmpQuotes[i], null, session); fmpUsed.push(sym); }
+      });
+      cacheEarningsDatesFromFMP(missing, fmpQuotes);
+      logFmpUsage(fmpUsed, forceFmp ? 'brokerage-quality-check' : 'brokerage-fallback');
+    }
+
+    // Extended-hours fallback — v7's live-tick batch (this used to try first) is also broken
+    // (401), so go straight to the 1m chart (fetchExtendedHours).
     if (isExt) {
       const needsExt = allSymbols.filter(s => {
         const q = quoteMap[s]; if (!q) return false;
@@ -6072,37 +7064,8 @@
       });
 
       if (needsExt.length) {
-        // ── Step 1: Yahoo v7 live-tick batch ──────────────────────────────────
-        let stillNeedsChart = [...needsExt];
-        try {
-          const v7Url  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${needsExt.join(',')}&formatted=false&_cb=${Date.now()}`;
-          const v7Data = await fetchJSON(v7Url);
-          (v7Data?.quoteResponse?.result ?? []).forEach(q => {
-            const s  = q.symbol;
-            if (!quoteMap[s]) return;
-            const nq = normaliseQuote(q);
-            const extP = session === 'PRE' ? nq.preMarketPrice : nq.postMarketPrice;
-            if (extP == null) return;
-            if (session === 'PRE') {
-              quoteMap[s].preMarketPrice         = nq.preMarketPrice;
-              quoteMap[s].preMarketChange        = nq.preMarketChange;
-              quoteMap[s].preMarketChangePercent = nq.preMarketChangePercent;
-            } else {
-              quoteMap[s].postMarketPrice         = nq.postMarketPrice;
-              quoteMap[s].postMarketChange        = nq.postMarketChange;
-              quoteMap[s].postMarketChangePercent = nq.postMarketChangePercent;
-            }
-            if (nq.regularMarketPrice) quoteMap[s].regularMarketPrice = nq.regularMarketPrice;
-            stillNeedsChart = stillNeedsChart.filter(x => x !== s);
-          });
-        } catch (e) {
-          console.warn('[BrokExt] Yahoo v7 batch failed, falling through to chart:', e.message);
-        }
-
-        // ── Step 2: 1m chart for any still unresolved ─────────────────────────
-        if (stillNeedsChart.length) {
-          const extRes = await Promise.all(stillNeedsChart.map(fetchExtendedHours));
-          stillNeedsChart.forEach((s, i) => {
+        const extRes = await Promise.all(needsExt.map(fetchExtendedHours));
+        needsExt.forEach((s, i) => {
             const ext = extRes[i];
             if (ext && quoteMap[s]) {
               quoteMap[s].preMarketPrice          = ext.preMarketPrice;
@@ -6116,10 +7079,10 @@
               }
             }
           });
-        }
       }
     }
 
+    let _brokUp = 0, _iraUp = 0; // positions that got a fresh price this cycle, per tab
     brokerageRows.forEach(row => {
       const sym    = row.dataset.symbol;
       const q      = quoteMap[sym];
@@ -6133,6 +7096,7 @@
       const priceTag = q.isPre && q.preMarketPrice  != null ? 'PRE'
                      : q.postMarketPrice != null ? 'AH' : null;
       if (!price) return;
+      if (row.parentElement?.id === 'ira-tbody') _iraUp++; else _brokUp++;
 
       const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
       const logClose   = q.isPre ? (lastCloseMap[sym] ?? null) : null;
@@ -6157,7 +7121,8 @@
 
       const value      = shares * price;
       const gain       = value - cost;
-      const pct        = cost ? gain / cost * 100 : 0;
+      const glBasis    = parseFloat(row.dataset.econGrossBuys) || cost;
+      const pct        = glBasis ? gain / glBasis * 100 : 0;
       const cls        = gain >= 0 ? 'gain' : 'loss';
       const curValCell = row.querySelector('.cur-value');
       if (curValCell) {
@@ -6186,6 +7151,18 @@
     savePriceCache(); // snapshot includes live Brokerage/IRA prices for instant restore on next load
     scheduledSyncToCloud(); // D3: debounced — one push even when fetchPrices also triggers a sync
 
+    // Record per-tab freshness so the "N/M live" count is correct on the Brokerage / Retirement
+    // tabs (was showing a leftover count from whichever tab fetched last). Totals = priceable rows
+    // (PRIVATE/HGI excluded above), so an all-private tab shows 0/0.
+    {
+      const _t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const brokTot = brokerageRows.filter(r => r.parentElement?.id !== 'ira-tbody').length;
+      const iraTot  = brokerageRows.filter(r => r.parentElement?.id === 'ira-tbody').length;
+      _tabLive.brokerage = { state: (brokTot - _brokUp) > 0 ? 'warn' : 'ok', text: `Updated ${_t} · ${_brokUp}/${brokTot} live` };
+      _tabLive.ira       = { state: (iraTot  - _iraUp)  > 0 ? 'warn' : 'ok', text: `Updated ${_t} · ${_iraUp}/${iraTot} live` };
+      paintActiveTabStatus();
+    }
+
     // Persist lastCloseMap after non-PRE fetch so next-morning PRE % always has yesterday's close.
     if (session !== 'PRE') {
       try {
@@ -6201,15 +7178,22 @@
   // TAG TOGGLE (☆ / ★)
   // ═══════════════════════════════════════════════════════════════
 
-  function toggleTag(symbol, btn) {
-    const tagged = getTagged();
+  function _renderGroupAndBrokerage(group) {
+    if (!schwabAccounts || !schwabAccounts.length) return;
+    const brokerageAccts = schwabAccounts.filter(a => !getRetirementAccountNums().includes(a.securitiesAccount?.accountNumber));
+    renderBrokerageTab(brokerageAccts);
+    renderGroupFromSchwab(group, brokerageAccts);
+  }
+
+  function toggleTag(symbol, btn, group = 'alphapicks') {
+    const cfg    = GROUPS[group] || GROUPS.alphapicks;
+    const empty  = cfg.marker === '◆' ? '◇' : '☆';
+    const tagged = getTagged(group);
     const idx    = tagged.indexOf(symbol);
     if (idx === -1) {
-      // Add to Alpha Picks
+      // Add to group
       tagged.push(symbol);
-      btn.textContent = '★';
-      btn.classList.add('tagged');
-      btn.title = 'Return to Brokerage';
+      if (btn) { btn.textContent = cfg.marker; btn.classList.add('tagged'); btn.title = `Remove from ${cfg.label}`; }
       if (!getBuyDates()[symbol]) {
         // Schwab API consistently lags 1 day — shift the detected date back by 1.
         const allDates = getAllBuyDates(true);
@@ -6218,45 +7202,36 @@
         d.setDate(d.getDate() - 1);
         saveBuyDate(symbol, d.toISOString().slice(0, 10));
       }
-      addTaggedToAlphaPicks(symbol);
-      // Update matching star in picks tab if it exists
-      document.querySelectorAll(`#picks-tbody tr[data-ticker="${symbol}"] .tag-btn`).forEach(b => {
-        b.textContent = '★'; b.classList.add('tagged'); b.title = 'Return to Brokerage';
+      saveTagged(tagged, group);
+      // Sync any other copies of this group's marker (e.g. the row in the group tab)
+      document.querySelectorAll(`.tag-btn[data-group="${group}"][data-sym="${symbol}"]`).forEach(b => {
+        b.textContent = cfg.marker; b.classList.add('tagged'); b.title = `Remove from ${cfg.label}`;
       });
+      addTaggedToGroup(symbol, group);
     } else {
-      // Remove from Alpha Picks
+      // Remove from group
       tagged.splice(idx, 1);
-      btn.textContent = '☆';
-      btn.classList.remove('tagged');
-      btn.title = 'Add to Alpha Picks';
-      // Update matching star in brokerage tab if it exists
-      document.querySelectorAll(`[data-symbol="${symbol}"] .tag-btn`).forEach(b => {
-        b.textContent = '☆'; b.classList.remove('tagged'); b.title = 'Add to Alpha Picks';
+      if (btn) { btn.textContent = empty; btn.classList.remove('tagged'); btn.title = `Add to ${cfg.label}`; }
+      document.querySelectorAll(`.tag-btn[data-group="${group}"][data-sym="${symbol}"]`).forEach(b => {
+        b.textContent = empty; b.classList.remove('tagged'); b.title = `Add to ${cfg.label}`;
       });
-      // Save first so re-renders read the updated tagged list
-      saveTagged(tagged);
-      // Re-render both picks and brokerage from Schwab data
-      if (schwabAccounts && schwabAccounts.length) {
-        const brokerageAccts = schwabAccounts.filter(a => !getRetirementAccountNums().includes(a.securitiesAccount?.accountNumber));
-        renderBrokerageTab(brokerageAccts);
-        renderAlphaPicksFromSchwab(brokerageAccts);
-      }
-      return;
+      saveTagged(tagged, group);
+      _renderGroupAndBrokerage(group);
     }
-    saveTagged(tagged);
   }
 
-  function addTaggedToAlphaPicks(symbol) {
-    // Re-render the Alpha Picks tab from Schwab data to include the newly tagged symbol
+  function addTaggedToGroup(symbol, group = 'alphapicks') {
+    const cfg = GROUPS[group] || GROUPS.alphapicks;
     if (schwabAccounts && schwabAccounts.length) {
       const brokerageAccts = schwabAccounts.filter(a => !getRetirementAccountNums().includes(a.securitiesAccount?.accountNumber));
-      renderAlphaPicksFromSchwab(brokerageAccts);
+      renderGroupFromSchwab(group, brokerageAccts);
       fetchPrices();
     }
     const c = document.getElementById('div-toasts');
+    if (!c) return;
     const t = document.createElement('div');
     t.className = 'div-toast log';
-    t.innerHTML = `<span class="div-toast-icon">★</span><span class="div-toast-body"><strong>${symbol}</strong> added to Alpha Picks</span><button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+    t.innerHTML = `<span class="div-toast-icon">${cfg.marker}</span><span class="div-toast-body"><strong>${symbol}</strong> added to ${cfg.label}</span><button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
     c.appendChild(t);
     setTimeout(() => t.remove(), 4000);
   }
@@ -6269,17 +7244,20 @@
 
   let irrAuditData = []; // populated by loadIRRData, used by printIRRAudit
   let spyAuditData = {}; // populated by computeTabIRRStats, keyed by tabId
+  let benchAuditData = {}; // secondary benchmark (VYM) for QG&I, same shape as spyAuditData
   let irrLoadInProgress = false;
 
-  function printIRRAudit() {
+  function printIRRAudit(section) {
     if (!irrAuditData.length) { alert('Run Load IRR Data first.'); return; }
+    const auditRows = section ? irrAuditData.filter(e => e.section === section) : irrAuditData;
+    if (!auditRows.length) { alert('No IRR data for this tab yet.'); return; }
     const asOf = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
     const fmtD = iso => { const [y,m,d] = iso.split('-'); return `${m}/${d}/${y}`; };
     const fmtC = v => v == null ? '—' : `$${Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
     const fmtP = v => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
 
     let body = '';
-    for (const pos of irrAuditData) {
+    for (const pos of auditRows) {
       const src = pos.source === 'csv' ? ' <span style="color:#888;font-size:10px">(CSV)</span>'
                 : pos.source === 'api' ? ' <span style="color:#888;font-size:10px">(API)</span>' : '';
       body += `<div class="pos-block">
@@ -6421,7 +7399,8 @@ ${body}</body></html>`;
   function getTestTxns() { return JSON.parse(localStorage.getItem('alphapicks_test_txns') || '[]'); }
   function saveTestTxns(arr) { localStorage.setItem('alphapicks_test_txns', JSON.stringify(arr)); }
 
-  function toggleMockPanel() {
+  function toggleMockPanel(group) {
+    if (group && group !== 'alphapicks') { alert('Mock transactions are an Alpha Picks testing tool; QG&I mock support isn\'t enabled yet.'); return; }
     const panel = document.getElementById('mock-txn-panel');
     const show = panel.style.display === 'none';
     panel.style.display = show ? '' : 'none';
@@ -6477,7 +7456,9 @@ ${body}</body></html>`;
 
   // ── Alpha Picks Ledger Report ─────────────────────────────────────────────
 
-  async function printLedgerReport() {
+  async function printLedgerReport(group) {
+    // QG&I: its cash-flow ledger + IRR live in the group audit (dividend-history ledger is Alpha Picks-only for now)
+    if (group && group !== 'alphapicks') { printGroupAudit(group); return; }
     const asOf     = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' });
     const todayIso = new Date().toISOString().split('T')[0];
     const fmtD     = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
@@ -6839,6 +7820,71 @@ ${wfSVG}
     setTimeout(() => w.print(), 500);
   }
 
+  // ── Group Audit (Alpha Picks / QG&I) ──────────────────────────────────────
+  // Full snapshot built from irrAuditData for the group — verifies that Net Invested
+  // is out-of-pocket only (grossBuys − sellProceeds), DRIP cost is shown separately and
+  // NOT in base cost, and per-position True IRR / Simple Return.
+  function printGroupAudit(group = 'alphapicks') {
+    if (group === 'alphapicks') return printAlphaPicksAudit();
+    const cfg = GROUPS[group] || GROUPS.alphapicks;
+    const entries = (irrAuditData || []).filter(e => e.section === group);
+    if (!entries.length) { alert(`Open the ${cfg.label} tab and let IRR finish computing, then try again.`); return; }
+    const fmtC = v => v == null ? '—' : `$${Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+    const fmtP = v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+    const asOf = new Date().toLocaleString('en-US',{year:'numeric',month:'long',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    let totBuys = 0, totSell = 0, totDrip = 0, totDiv = 0, totNet = 0, totVal = 0, totGL = 0, rowsHTML = '';
+    [...entries].sort((a,b) => a.sym.localeCompare(b.sym)).forEach(e => {
+      const netInv = e.cashInvested != null ? e.cashInvested : e.grossBuys;
+      const gl = e.mktVal - (netInv || 0);
+      totBuys += e.grossBuys || 0; totSell += e.sellProceeds || 0; totDrip += e.dripCost || 0; totDiv += e.divCash || 0;
+      totNet += netInv || 0; totVal += e.mktVal; totGL += gl;
+      rowsHTML += `<tr><td><b>${e.sym}</b></td><td class=r>${(e.shares||0)}</td><td class=r>${fmtC(e.grossBuys)}</td>`
+        + `<td class=r>${e.sellProceeds>0?fmtC(e.sellProceeds):'—'}</td><td class=r>${e.dripCost>0?fmtC(e.dripCost):'—'}</td>`
+        + `<td class="r green">${e.divCash>0?'+'+fmtC(e.divCash):'—'}</td>`
+        + `<td class=r><b>${fmtC(netInv)}</b></td><td class=r>${fmtC(e.mktVal)}</td>`
+        + `<td class="r ${gl>=0?'green':'red'}">${gl>=0?'+':'-'}${fmtC(gl)}</td>`
+        + `<td class="r">${fmtP(e.irrPct)}</td><td class="r">${fmtP(e.simpleRet)}</td></tr>`;
+    });
+    let cf = [];
+    entries.forEach(e => (e.txns||[]).forEach(t => cf.push({ date: t.date, sym: e.sym, action: t.action, amount: t.amount, qty: t.qty })));
+    cf.sort((a,b) => String(a.date).localeCompare(String(b.date)));
+    const cfHTML = cf.map(t => `<tr><td>${t.date}</td><td><b>${t.sym}</b></td><td>${t.action}</td>`
+      + `<td class=r>${t.qty?Number(t.qty).toFixed(4):'—'}</td>`
+      + `<td class="r ${(t.amount||0)<0?'red':'green'}">${(t.amount||0)<0?'-':'+'}${fmtC(t.amount)}</td></tr>`).join('');
+    const irrRate = tabStats[group].irrRate, spyRet = tabStats[group].spySimpleRet;
+    const html = `<!DOCTYPE html><html><head><title>${cfg.label} Audit — ${asOf}</title><style>
+      body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:24px}
+      h1{font-size:17px;margin-bottom:2px}.sub{color:#555;font-size:11px;margin-bottom:16px}
+      h2{font-size:13px;border-bottom:2px solid #333;padding-bottom:4px;margin:22px 0 8px}
+      table{border-collapse:collapse;width:100%;font-size:11px;margin-bottom:8px}
+      th{background:#333;color:#fff;padding:4px 8px;text-align:left}td{padding:3px 8px;border-bottom:1px solid #ddd}
+      td.r,th.r{text-align:right}.green{color:#1a7a3a}.red{color:#c0392b}
+      tfoot td{font-weight:bold;border-top:2px solid #333;background:#f5f5f5}
+      .note{background:#eef6ff;border:1px solid #cfe3ff;padding:8px 10px;border-radius:6px;font-size:11px;margin-bottom:12px}
+    </style></head><body>
+      <h1>${cfg.label} — Position & Cash-Flow Audit</h1>
+      <div class="sub">As of ${asOf} · Benchmark ${cfg.benchmarkLabel}</div>
+      <div class="note"><b>Methodology:</b> Net Invested = Gross Buys − Sell Proceeds (initial out-of-pocket cash only).
+        Reinvested dividends (DRIP) are shown separately and are <b>excluded</b> from base cost — their value is reflected in Market Value. <b>Cash Div</b> = pay-out dividends (not reinvested), folded into the return as positive cash flows on their pay date. True IRR (XIRR) excludes DRIP-reinvestment flows but includes cash dividends.</div>
+      <div class="sub">Group True IRR (annual): <b>${fmtP(irrRate!=null?irrRate*100:null)}</b>
+        &nbsp;·&nbsp; ${cfg.benchmark} equivalent (simple): <b>${fmtP(spyRet!=null?spyRet*100:null)}</b>
+        &nbsp;·&nbsp; Cash dividends to date: <b class="green">${totDiv>0?'+'+fmtC(totDiv):'$0.00'}</b></div>
+      <h2>Positions</h2>
+      <table><thead><tr><th>Ticker</th><th class=r>Shares</th><th class=r>Gross Buys</th><th class=r>Sell Proceeds</th>
+        <th class=r>DRIP Cost</th><th class=r>Cash Div</th><th class=r>Net Invested</th><th class=r>Mkt Value</th><th class=r>Gain/Loss</th>
+        <th class=r>True IRR</th><th class=r>Simple Ret</th></tr></thead>
+        <tbody>${rowsHTML}</tbody>
+        <tfoot><tr><td>TOTAL (${entries.length})</td><td></td><td class=r>${fmtC(totBuys)}</td><td class=r>${fmtC(totSell)}</td>
+          <td class=r>${fmtC(totDrip)}</td><td class="r green">${totDiv>0?'+'+fmtC(totDiv):'—'}</td><td class=r>${fmtC(totNet)}</td><td class=r>${fmtC(totVal)}</td>
+          <td class="r ${totGL>=0?'green':'red'}">${totGL>=0?'+':'-'}${fmtC(totGL)}</td><td></td><td></td></tr></tfoot>
+      </table>
+      <h2>Cash-Flow Ledger (${cf.length} entries)</h2>
+      <table><thead><tr><th>Date</th><th>Ticker</th><th>Action</th><th class=r>Shares</th><th class=r>Cash Flow</th></tr></thead>
+        <tbody>${cfHTML}</tbody></table>
+    </body></html>`;
+    const w = window.open('', '_blank'); w.document.write(html); w.document.close();
+  }
+
   // ── Alpha Picks Audit ─────────────────────────────────────────────────────
 
   function printAlphaPicksAudit() {
@@ -7025,11 +8071,25 @@ ${soldRowsData.length ? `<table>
       const cols = splitCSVLine(line);
       if (cols.length < 8) continue;
 
-      // Date field: "MM/DD/YYYY", "MM/DD/YYYY as of MM/DD/YYYY", or Excel serial (e.g. 45352)
+      // Date field. Schwab exports MIX formats in the same file:
+      //   "MM/DD/YYYY"                     (slashes, 4-digit year)
+      //   "MM/DD/YYYY as of MM/DD/YYYY"    (take the first = transaction date)
+      //   "MM-DD-YY"                       (dashes, 2-digit year — e.g. "06-04-24")
+      //   ISO "YYYY-MM-DD" / Excel serial  (defensive)
+      // The .match() for slashes returns the FIRST match, so "X as of Y" keeps the txn date.
+      // NOTE: the dash MM-DD-YY form MUST be handled — else rows like the anchor JAAA buy
+      // "06-04-24" get silently dropped, corrupting cost basis.
       let date;
-      const dateMatch = cols[0].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if (dateMatch) {
-        date = `${dateMatch[3]}-${dateMatch[1].padStart(2,'0')}-${dateMatch[2].padStart(2,'0')}`;
+      const slash = cols[0].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (slash) {
+        date = `${slash[3]}-${slash[1].padStart(2,'0')}-${slash[2].padStart(2,'0')}`;
+      } else if (/^\d{4}-\d{2}-\d{2}/.test(cols[0])) {
+        // ISO date already
+        date = cols[0].slice(0, 10);
+      } else if (/^\d{1,2}-\d{1,2}-\d{2}$/.test(cols[0])) {
+        // MM-DD-YY (dashes, 2-digit year) → 20YY-MM-DD
+        const [mm, dd, yy] = cols[0].split('-');
+        date = `20${yy}-${mm.padStart(2,'0')}-${dd.padStart(2,'0')}`;
       } else if (/^\d{4,6}$/.test(cols[0])) {
         // Excel serial number → convert to YYYY-MM-DD
         // Excel epoch: Dec 30, 1899; serial 60 = non-existent Feb 29, 1900 (Excel leap-year bug)
@@ -7039,9 +8099,6 @@ ${soldRowsData.length ? `<table>
         const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, dy = d.getUTCDate();
         date = `${y}-${String(m).padStart(2,'0')}-${String(dy).padStart(2,'0')}`;
         console.warn(`[CSV] Excel date serial ${cols[0]} on line ${i+1} → ${date} (${cols[2]} ${cols[1]})`);
-      } else if (/^\d{4}-\d{2}-\d{2}/.test(cols[0])) {
-        // ISO date already
-        date = cols[0].slice(0, 10);
       } else {
         continue; // unrecognised date format — skip
       }
@@ -7053,10 +8110,11 @@ ${soldRowsData.length ? `<table>
       // Quantity: may contain commas ("2,678")
       const qty = parseFloat(cols[4].replace(/,/g, '')) || 0;
 
-      // Amount: "$1,234.56" or "-$1,234.56" or ""
+      // Amount: "$1,234.56", "-$1,234.56", "($6,900.00)" (Schwab uses parentheses for
+      // negatives, NOT a minus sign), or "". Detect BOTH minus and parentheses as negative.
       const amtRaw = cols[7];
-      const isNeg  = amtRaw.includes('-');
-      const amtNum = parseFloat(amtRaw.replace(/[$,\-]/g, '')) || 0;
+      const isNeg  = amtRaw.includes('-') || amtRaw.includes('(');
+      const amtNum = parseFloat(amtRaw.replace(/[$,()\s\-]/g, '')) || 0;
       const amount = isNeg ? -amtNum : amtNum;
 
       txns.push({ date, action, symbol, qty, amount, acctSuffix });
@@ -7102,10 +8160,11 @@ ${soldRowsData.length ? `<table>
 
   // ──────────────────────────────────────────────────────────────────────────
 
-  async function fetchSPYHistory(startDateStr) {
+  // Daily open/close/dividend history for any benchmark ticker (SPY, VYM, …).
+  async function fetchBenchHistory(ticker, startDateStr) {
     const period1 = Math.floor(new Date(startDateStr + 'T12:00:00Z').getTime() / 1000);
     const period2 = Math.floor(Date.now() / 1000);
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&period1=${period1}&period2=${period2}&events=dividends&_cb=${Date.now()}`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&period1=${period1}&period2=${period2}&events=dividends&_cb=${Date.now()}`;
     const data = await fetchJSON(url);
     const result = data?.chart?.result?.[0];
     if (!result) return { opens: {}, closes: {}, dividends: {} };
@@ -7122,6 +8181,7 @@ ${soldRowsData.length ? `<table>
     });
     return { opens, closes, dividends };
   }
+  const fetchSPYHistory = (startDateStr) => fetchBenchHistory('SPY', startDateStr);
 
   function nearestSPYPrice(prices, dateStr) {
     for (let i = 0; i <= 7; i++) {
@@ -7136,7 +8196,7 @@ ${soldRowsData.length ? `<table>
   async function computeTabIRRStats() {
     const termDate = new Date(); termDate.setHours(12, 0, 0, 0);
 
-    for (const tabId of ['brokerage', 'ira', 'alphapicks']) {
+    for (const tabId of ['brokerage', 'ira', 'alphapicks', 'qgi']) {
       const allEntries = irrAuditData.filter(e => e.section === tabId);
       const entries    = allEntries.filter(e => e.cashFlows?.length > 0);
       if (!allEntries.length) continue;
@@ -7238,6 +8298,57 @@ ${soldRowsData.length ? `<table>
         } catch(e) { console.warn('[SPY IRR]', e.message); }
       }
 
+      // ── VYM benchmark (QG&I only) — second benchmark, same same-flows methodology as SPY ──
+      if (tabId === 'qgi') {
+        const vFlows = allFlows.filter(p => p.date < termDate);
+        if (vFlows.length > 0) {
+          try {
+            const vEarliest = vFlows.reduce((d, p) => p.date < d ? p.date : d, vFlows[0].date);
+            const { opens, closes, dividends } = await fetchBenchHistory('VYM', vEarliest.toISOString().slice(0, 10));
+            const cd = Object.keys(closes).sort();
+            const curVYM = closes[cd[cd.length - 1]];
+            if (curVYM) {
+              const events = entries.flatMap(e => e.cashFlows.filter(p => p.date < termDate)
+                .map(p => ({ type: 'flow', date: p.date, amount: p.amount, ticker: e.sym })));
+              for (const [ds, dv] of Object.entries(dividends)) {
+                const dd = new Date(ds + 'T12:00:00');
+                if (dd >= vEarliest && dd < termDate) events.push({ type: 'div', date: dd, divPerShare: dv });
+              }
+              events.sort((a, b) => a.date - b.date);
+              let netShares = 0; const bFlows = []; const auditRows = [];
+              for (const ev of events) {
+                const ds = ev.date.toISOString().slice(0, 10);
+                if (ev.type === 'flow') {
+                  const px = nearestSPYPrice(opens, ds); if (!px) continue;
+                  const delta = ev.amount < 0 ? Math.abs(ev.amount) / px : -(ev.amount / px);
+                  netShares += delta; bFlows.push({ amount: ev.amount, date: ev.date });
+                  auditRows.push({ date: ds, type: ev.amount < 0 ? 'BUY' : 'SELL', ticker: ev.ticker, portfolioAmt: ev.amount, spyPrice: px, sharesDelta: delta, cumulShares: netShares });
+                } else if (ev.type === 'div' && netShares > 0) {
+                  const px = nearestSPYPrice(opens, ds);
+                  if (px) { const delta = (ev.divPerShare * netShares) / px; netShares += delta;
+                    auditRows.push({ date: ds, type: 'DIV', divPerShare: ev.divPerShare, spyPrice: px, sharesDelta: delta, cumulShares: netShares }); }
+                }
+              }
+              const termVal = netShares * curVYM;
+              const gBuys = auditRows.filter(r => r.type === 'BUY').reduce((s, r) => s + Math.abs(r.portfolioAmt || 0), 0);
+              const sProc = auditRows.filter(r => r.type === 'SELL').reduce((s, r) => s + (r.portfolioAmt || 0), 0);
+              if (gBuys > 0) tabStats[tabId].benchSimpleRet = (termVal + sProc - gBuys) / gBuys;
+              let cS = 0, cC = 0;
+              const snapshots = [...auditRows].sort((a, b) => a.date < b.date ? -1 : 1).map(row => {
+                if (row.type === 'BUY')  cC += Math.abs(row.portfolioAmt ?? 0);
+                if (row.type === 'SELL') cC -= (row.portfolioAmt ?? 0);
+                cS = row.cumulShares; return { date: row.date, cumulShares: cS, cumulCostBasis: cC };
+              });
+              benchAuditData[tabId] = { label: 'VYM', auditRows, snapshots, closes, currentPrice: curVYM, simpleRet: tabStats[tabId].benchSimpleRet };
+              bFlows.push({ amount: termVal, date: termDate });
+              bFlows.sort((a, b) => a.date - b.date);
+              if (bFlows.length >= 2 && bFlows.some(p => p.amount < 0))
+                tabStats[tabId].benchIrrRate = calcXIRR(bFlows.map(p => p.amount), bFlows.map(p => p.date));
+            }
+          } catch (e) { console.warn('[VYM benchmark]', e.message); }
+        }
+      }
+
       const activeTab = TAB_IDS.find(t => document.getElementById(`tab-${t}`)?.classList.contains('active'));
       if (activeTab === tabId) renderTabStats(tabId);
       updateAllocTabStats(); renderTabStats('allocation');
@@ -7308,6 +8419,7 @@ ${soldRowsData.length ? `<table>
         brokerage:  { irrRate: tabStats.brokerage.irrRate,  spyIrrRate: tabStats.brokerage.spyIrrRate,  spySimpleRet: tabStats.brokerage.spySimpleRet  },
         ira:        { irrRate: tabStats.ira.irrRate,         spyIrrRate: tabStats.ira.spyIrrRate,         spySimpleRet: tabStats.ira.spySimpleRet         },
         alphapicks: { irrRate: tabStats.alphapicks.irrRate,  spyIrrRate: tabStats.alphapicks.spyIrrRate,  spySimpleRet: tabStats.alphapicks.spySimpleRet  },
+        qgi:        { irrRate: tabStats.qgi.irrRate,         spyIrrRate: tabStats.qgi.spyIrrRate,         spySimpleRet: tabStats.qgi.spySimpleRet         },
         allocation: { spyIrrRate: tabStats.allocation.spyIrrRate, spySimpleRet: tabStats.allocation.spySimpleRet },
       }));
     } catch(_) {}
@@ -7397,6 +8509,7 @@ ${soldRowsData.length ? `<table>
       ...document.querySelectorAll('#brok-etfs-tbody tr[data-symbol]'),
       ...document.querySelectorAll('#ira-tbody tr[data-symbol]'),
       ...document.querySelectorAll('#picks-tbody tr[data-symbol]'),
+      ...document.querySelectorAll('#qgi-tbody tr[data-symbol]'),
     ];
     allRows.forEach(row => {
       const c = cacheMap.get(`${row.dataset.symbol}|${row.dataset.acctNum ?? ''}`);
@@ -7416,16 +8529,130 @@ ${soldRowsData.length ? `<table>
     refreshSectionStats();
   }
 
+  // Split a shared ticker's transaction history between groups for per-row IRR.
+  // A group with an explicit allocation entry (e.g. QG&I's B lot) uses just that synthesised
+  // buy; the remainder group (e.g. Alpha Picks' B) gets the full history minus the other
+  // groups' allocated lots (matched by share qty). Only used in the local-journal path.
+  function attributeGroupTxns(sym, group, symTxns) {
+    const alloc = getGroupAlloc()[sym] || {};
+    const allocGroups = Object.keys(alloc);
+    if (!allocGroups.length) return symTxns;
+    const synthFor = g => {
+      const a = alloc[g]; if (!a || !(a.shares > 0)) return [];
+      return [{ date: a.buyDate || getBuyDates()[sym] || new Date().toISOString().slice(0,10),
+                action: 'Buy', symbol: sym, qty: a.shares, amount: -Math.abs(a.cost), source: 'alloc' }];
+    };
+    if (alloc[group]) return synthFor(group);
+    let rem = [...symTxns];
+    allocGroups.forEach(g => synthFor(g).forEach(at => {
+      let bi = -1, bd = Infinity;
+      rem.forEach((t, i) => {
+        if ((t.action || '').toLowerCase() === 'buy') {
+          const d = Math.abs((t.qty || 0) - at.qty);
+          if (d < bd) { bd = d; bi = i; }
+        }
+      });
+      if (bi >= 0 && bd < 1) rem.splice(bi, 1);
+    }));
+    return rem;
+  }
+
+  // Cached Yahoo dividend history for a ticker → [{ exDate:'YYYY-MM-DD', amount:perShare }].
+  async function getDivHistoryCached(sym) {
+    const CACHE_KEY = 'div_history_cache', TTL = 12 * 3600 * 1000;
+    let cache = {}; try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (_) {}
+    if (cache[sym] && (Date.now() - cache[sym].ts < TTL)) return cache[sym].divs;
+    try {
+      const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1mo&range=5y&events=dividends&_cb=${Date.now()}`;
+      const data = await fetchJSON(url);
+      const raw  = data?.chart?.result?.[0]?.events?.dividends || {};
+      const divs = Object.entries(raw).map(([ts, ev]) => ({ exDate: new Date(parseInt(ts) * 1000).toISOString().slice(0, 10), amount: ev.amount || 0 }));
+      cache[sym] = { ts: Date.now(), divs };
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+      return divs;
+    } catch (_) { return cache[sym]?.divs || []; }
+  }
+  // Shares held on a given date, walking the journal backward from the current count.
+  function sharesHeldAtDate(sym, iso, currentShares, journal) {
+    let sh = currentShares;
+    const sorted = (journal || []).filter(j => j.symbol === sym).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    for (const j of sorted) {
+      if (j.date <= iso) break;
+      const q = parseFloat(j.qty) || 0;
+      const act = (j.action || '').toLowerCase();
+      if (act === 'buy' || act === 'reinvest shares') sh -= q;
+      else if (act === 'sell') sh += q;
+    }
+    return Math.max(sh, 0);
+  }
+
+  // Reconstruct cumulative distributions received for an income position when the
+  // authoritative reinvest transactions are unavailable (schwab_csv_txns was lost).
+  // Uses Yahoo dividend history + monthly close prices. For a DRIP position it walks the
+  // reinvested share growth BACKWARD from the current share count (shares_before =
+  // shares_after / (1 + divPerShare/price)) so early-period distributions aren't overstated
+  // by today's larger, DRIP-inflated share count. For a cash-payout position shares are held
+  // constant. Display-only: the reinvested shares are already in market value, so IRR is
+  // untouched. Returns { distValue, count }.
+  async function reconstructDistributions(sym, buyIso, currentShares, isDrip) {
+    const CACHE_KEY = 'dist_recon_cache', TTL = 12 * 3600 * 1000;
+    let cache = {}; try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (_) {}
+    const ck = `${sym}|${buyIso}|${currentShares.toFixed(4)}|${isDrip ? 1 : 0}`;
+    if (cache[ck] && (Date.now() - cache[ck].ts < TTL)) return cache[ck].val;
+    try {
+      const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1mo&range=5y&events=dividends&_cb=${Date.now()}`;
+      const data = await fetchJSON(url);
+      const res  = data?.chart?.result?.[0];
+      const rawDiv = res?.events?.dividends || {};
+      const ts     = res?.timestamp || [];
+      const close  = res?.indicators?.quote?.[0]?.close || [];
+      // Nearest monthly close at or just after a given ex-date (reinvestment price proxy)
+      const priceAt = (unixSec) => {
+        let best = null;
+        for (let i = 0; i < ts.length; i++) {
+          if (close[i] != null && ts[i] <= unixSec + 5 * 86400) best = close[i];
+        }
+        return best;
+      };
+      const divs = Object.entries(rawDiv)
+        .map(([t, ev]) => ({ sec: parseInt(t, 10), exDate: new Date(parseInt(t, 10) * 1000).toISOString().slice(0, 10), amt: ev.amount || 0 }))
+        .filter(d => d.amt > 0 && d.exDate >= buyIso)
+        .sort((a, b) => a.sec - b.sec);
+      let distValue = 0;
+      if (!isDrip || divs.length === 0) {
+        distValue = divs.reduce((s, d) => s + d.amt * currentShares, 0);
+      } else {
+        let sharesAfter = currentShares;
+        for (let i = divs.length - 1; i >= 0; i--) {
+          const px = priceAt(divs[i].sec) || 0;
+          const factor = px > 0 ? (1 + divs[i].amt / px) : 1;
+          const sharesBefore = sharesAfter / factor;
+          distValue += sharesBefore * divs[i].amt;
+          sharesAfter = sharesBefore;
+        }
+      }
+      const val = { distValue: +distValue.toFixed(2), count: divs.length };
+      // Only cache a SUCCESSFUL non-empty reconstruction. A rate-limited/degraded proxy
+      // response yields an empty dividends map → distValue 0; caching that would poison the
+      // display for 12h. Leave it uncached so it retries and the cell stays "—" meanwhile.
+      if (val.count > 0 && val.distValue > 0) {
+        cache[ck] = { ts: Date.now(), val };
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+      }
+      return val;
+    } catch (_) { return cache[ck]?.val || { distValue: 0, count: 0 }; }
+  }
+
   async function loadIRRData() {
     if (irrLoadInProgress) return;
     irrLoadInProgress = true;
     try {
-    const allLbls = ['brok-sync-label','ira-sync-label','alphapicks-sync-label']
+    const allLbls = ['brok-sync-label','ira-sync-label','alphapicks-sync-label','qgi-sync-label']
       .map(id => document.getElementById(id)).filter(Boolean);
     allLbls.forEach(l => l.textContent = 'Computing IRR…');
     irrAuditData = [];
-    ['irr-audit-btn','irr-ira-audit-btn','irr-alphapicks-audit-btn',
-     'spy-audit-btn','spy-audit-btn-brokerage','spy-audit-btn-ira','spy-audit-btn-allocation']
+    ['irr-audit-btn','irr-ira-audit-btn','irr-alphapicks-audit-btn','irr-qgi-audit-btn',
+     'spy-audit-btn','spy-audit-btn-brokerage','spy-audit-btn-ira','spy-audit-btn-allocation','bench-qgi-audit-btn']
       .forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
 
     const rows = [
@@ -7433,6 +8660,7 @@ ${soldRowsData.length ? `<table>
       ...document.querySelectorAll('#brok-etfs-tbody tr[data-symbol]'),
       ...document.querySelectorAll('#ira-tbody tr[data-symbol]'),
       ...document.querySelectorAll('#picks-tbody tr[data-symbol]'),
+      ...document.querySelectorAll('#qgi-tbody tr[data-symbol]'),
     ];
 
     // Add virtual rows for mock-sold symbols not currently in any tbody.
@@ -7656,7 +8884,7 @@ ${soldRowsData.length ? `<table>
             sym, shares, mktVal: adjustedMktVal, cashInvested: grossBuys, grossBuys,
             sellProceeds: equityTotal, dripCost: interestTotal, dripUnits: 0,
             irrPct, simpleRet: 0,  // valued at cost → simple return = 0
-            source: 'hgi_excel', section: (() => { const id = row.parentElement?.id ?? ''; return id === 'picks-tbody' ? 'alphapicks' : id.startsWith('ira') ? 'ira' : 'brokerage'; })(),
+            source: 'hgi_excel', section: (() => { const id = row.parentElement?.id ?? ''; return id === 'picks-tbody' ? 'alphapicks' : id === 'qgi-tbody' ? 'qgi' : id.startsWith('ira') ? 'ira' : 'brokerage'; })(),
             txns: hgiFlows.map(([serial, amt]) => ({
               date: excelDateToJS(serial).toISOString().slice(0,10),
               action: amt < 0 ? 'Buy' : 'Distribution',
@@ -7726,6 +8954,12 @@ ${soldRowsData.length ? `<table>
             }))];
             console.log(`[IRR] ${sym}: injected ${mockForSym.length} mock sell(s)`);
           }
+        }
+
+        // Split shared-ticker history between groups (e.g. B → Alpha Picks vs QG&I lot).
+        // Local-journal path only; row.dataset.group is 'alphapicks' | 'qgi' for tagged rows.
+        if (usingCSV && row.dataset.group && groupsForSymbol(sym).length > 1) {
+          symTxns = attributeGroupTxns(sym, row.dataset.group, symTxns);
         }
 
         // Classify: DRIP = RECEIVE_AND_DELIVER; Cash flows = TRADE BUY/SELL
@@ -7810,7 +9044,11 @@ ${soldRowsData.length ? `<table>
             const priceNow = shares > 0 ? mktVal / shares : 0;
             const amt = Math.abs(shareDiff) * priceNow;
             if (amt > 0) {
-              const evDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
+              // Dated YESTERDAY, not today: the terminal market-value flow is always dated today
+              // (see termDate below), so injecting this on today's date would put two flows on
+              // the exact same date -- calcXIRR returns null for that (same failure mode the
+              // comment above describes for the zero-history case, but it applies here too).
+              const evDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12, 0, 0);
               if (shareDiff > 0) {
                 grossBuys += amt;
                 xirrPairs.push({ amount: -amt, date: evDate });
@@ -7862,7 +9100,37 @@ ${soldRowsData.length ? `<table>
           }
         }
 
-        const cashFlows = xirrPairs.map(p => ({ ...p })); // pre-terminal copy for pooled XIRR
+        // ── QG&I: fold CASH dividends into the return (income sleeve) ──────────────
+        // Reinvested (DRIP) dividends are already captured via terminal value (the extra
+        // shares), so only pay-out dividends with NO matching reinvestment are added, as
+        // positive flows on their pay date. The shared B ticker splits automatically because
+        // this row's `shares` is already the group's allocated slice (107.5231 for QG&I's B).
+        let divCash = 0;
+        if (row.dataset.group === 'qgi' && shares > 0 && row.dataset.date && xirrPairs.length > 0) {
+          try {
+            const divHist = await getDivHistoryCached(sym);
+            const buyIso  = row.dataset.date;
+            const todayIso = termDate.toISOString().slice(0, 10);
+            const reinvs  = symTxns.filter(t => (t.action || '').toLowerCase() === 'reinvest shares');
+            for (const d of divHist) {
+              if (!(d.amount > 0) || d.exDate < buyIso || d.exDate > todayIso) continue;
+              const shAt = sharesHeldAtDate(sym, d.exDate, shares, journalTxns);
+              if (shAt <= 0) continue;
+              // Reinvested? a Reinvest-Shares entry within 35 days after ex-date → already in terminal, skip
+              const winEnd = new Date(new Date(d.exDate + 'T12:00:00').getTime() + 35 * 86400000).toISOString().slice(0, 10);
+              if (reinvs.some(t => t.date >= d.exDate && t.date <= winEnd)) continue;
+              // Cash dividend → positive return flow on pay date (~ex + 21d, capped to today)
+              const payMs  = new Date(d.exDate + 'T12:00:00').getTime() + 21 * 86400000;
+              const payIso = new Date(payMs).toISOString().slice(0, 10);
+              const flowDate = new Date((payIso <= todayIso ? payIso : d.exDate) + 'T12:00:00');
+              const amt = +(d.amount * shAt).toFixed(2);
+              xirrPairs.push({ amount: amt, date: flowDate, _div: true });
+              divCash += amt;
+            }
+          } catch (_) {}
+        }
+
+        const cashFlows = xirrPairs.map(p => ({ ...p })); // pre-terminal copy for pooled XIRR (incl. cash-div inflows)
         if (xirrPairs.length > 0) {
           xirrPairs.push({ amount: mktVal, date: termDate });
           xirrPairs.sort((a, b) => a.date - b.date);
@@ -7876,7 +9144,18 @@ ${soldRowsData.length ? `<table>
 
         // DRIP value at current price
         const pricePerShare = shares > 0 ? mktVal / shares : 0;
-        const dripValue     = dripUnits * pricePerShare;
+        let   dripValue     = dripUnits * pricePerShare;
+        let   dripRecon     = false;
+        // Reconstruct cumulative distributions for income positions when the authoritative
+        // reinvest transactions are unavailable (schwab_csv_txns was lost). Display-only: the
+        // reinvested shares are already in market value, so IRR/Simple are left untouched.
+        const RECON_DRIP_TICKERS = new Set(['ARCC','BSM','DIVO','QQQI','JAAA','JEPQ','JEPI','QYLD','XYLD','RYLD','NEOS','CGDV']);
+        if (dripUnits === 0 && shares > 0 && row.dataset && row.dataset.date && RECON_DRIP_TICKERS.has(sym)) {
+          try {
+            const rec = await reconstructDistributions(sym, row.dataset.date, shares, true);
+            if (rec.distValue > 0) { dripValue = rec.distValue; dripRecon = true; }
+          } catch (_) {}
+        }
 
         // Simple return using best available cost basis
         const simpleRet = usedCostBasis > 0 ? (mktVal - usedCostBasis) / usedCostBasis * 100 : null;
@@ -7902,9 +9181,10 @@ ${soldRowsData.length ? `<table>
         // Append the injected sell (shares not yet in CSV) so it appears in the audit trail
         if (injectedTxn) auditTxns.push(injectedTxn);
         const tbodyId = row.parentElement?.id ?? '';
-        const section = tbodyId === 'picks-tbody' ? 'alphapicks' : tbodyId.startsWith('ira') ? 'ira' : 'brokerage';
+        const section = tbodyId === 'picks-tbody' ? 'alphapicks' : tbodyId === 'qgi-tbody' ? 'qgi' : tbodyId.startsWith('ira') ? 'ira' : 'brokerage';
         irrAuditData.push({
           sym, shares, mktVal, cashInvested: usedCostBasis, grossBuys, sellProceeds, dripCost, dripUnits,
+          divCash,
           irrPct: irrRate !== null ? irrRate * 100 : null,
           simpleRet, source: usingCSV ? 'csv' : 'api', txns: auditTxns,
           section, cashFlows,
@@ -7920,10 +9200,24 @@ ${soldRowsData.length ? `<table>
         const glCell = row.querySelector('[data-cell="gl"]');
         if (glCell && !noHistory && usedCostBasis > 0) {
           const econGL    = mktVal - usedCostBasis;
-          const econGLPct = econGL / usedCostBasis * 100;
+          // % denominator: total capital ever deployed (grossBuys), not the currently-remaining
+          // net-invested balance. When a position has been mostly sold off and the proceeds
+          // roughly repay the original buy, usedCostBasis (grossBuys - sellProceeds) shrinks
+          // toward zero while the real dollar profit (econGL, unchanged) stays the same size --
+          // dividing by a near-zero remaining balance was inflating the % into the thousands
+          // (e.g. BSM/IRA showed +1268.7% on a real $968 gain). grossBuys is a stable floor that
+          // never goes below usedCostBasis, so this only ever DAMPENS an inflated %, and for the
+          // common case with no sells grossBuys === usedCostBasis (no change in behavior).
+          const glPctBasis = grossBuys > 0 ? grossBuys : usedCostBasis;
+          const econGLPct = econGL / glPctBasis * 100;
           const glCls     = econGL >= 0 ? 'gain' : 'loss';
           glCell.innerHTML = glCellHTML(econGL, econGLPct);
           row.dataset.econCostBasis = usedCostBasis; // store for refreshSectionStats
+          // Stash the same glPctBasis the periodic price-refresh loops (refreshAlphaPicksPrices,
+          // refreshGroupPrices('qgi'), the brokerage/IRA price loop) read to recompute this cell
+          // on every price tick -- without this they fall back to usedCostBasis and the inflated
+          // % this block just fixed comes right back on the next refresh cycle.
+          row.dataset.econGrossBuys = glPctBasis;
           // Alpha Picks tab has no econCostBasis cascade — its live price-refresh loop and
           // Total Invested stat read dataset.cost directly, so update it here too.
           if (row.dataset.cost !== undefined) row.dataset.cost = usedCostBasis;
@@ -7944,7 +9238,16 @@ ${soldRowsData.length ? `<table>
           }
         }
         const dripCell = row.querySelector('[data-cell="drip"]');
-        if (dripCell) dripCell.textContent = dripUnits > 0 ? `$${fmtD(dripValue)}` : '—';
+        if (dripCell) {
+          if (dripUnits > 0 || dripRecon) {
+            dripCell.textContent = `$${fmtD(dripValue)}`;
+            dripCell.title = dripRecon
+              ? 'Cumulative distributions — estimated from dividend history (Schwab transaction data unavailable)'
+              : 'Cumulative distributions received';
+          } else {
+            dripCell.textContent = '—';
+          }
+        }
         const irrCell = row.querySelector('[data-cell="irr"]');
         irrCell.textContent = noHistory ? 'N/A' : irrPct !== null && irrPct > 1000 ? 'HIGH' : irrPct !== null && irrPct < -1000 ? 'LOW' : fmtPct(irrPct, 1);
         irrCell.className   = `right ${noHistory ? 'irr-muted' : irrCls}`;
@@ -7997,6 +9300,10 @@ ${soldRowsData.length ? `<table>
       ['irr-audit-btn','irr-ira-audit-btn','irr-alphapicks-audit-btn'].forEach(id => {
         const el = document.getElementById(id); if (el) el.style.display = '';
       });
+      if (irrAuditData.some(e => e.section === 'qgi')) {
+        const b1 = document.getElementById('irr-qgi-audit-btn');   if (b1) b1.style.display = '';
+        const b2 = document.getElementById('bench-qgi-audit-btn'); if (b2) b2.style.display = '';
+      }
     }
     } catch (err) {
       console.error('[IRR] loadIRRData failed:', err);
@@ -8077,7 +9384,17 @@ ${soldRowsData.length ? `<table>
       const tbody = document.getElementById(tbodyId);
       if (!tbody) return;
       tbody.querySelectorAll('tr[data-symbol]').forEach(row => {
-        const ticker = (row.dataset.symbol || '').toUpperCase();
+        // 'PRIVATE' and 'HGI2' are internal sentinel dataset.symbol values for the two HGI
+        // Multifamily Credit funds (no real ticker/CUSIP from Schwab) -- these strings are
+        // load-bearing elsewhere (price-fetch exclusion, IRR routing) and must stay as-is on the
+        // row itself. For cross-tab consistency the Allocation tab displays the SAME full names
+        // the Retirement tab uses (per user request 2026-07-26: "PRIVATE is the same asset
+        // listed in the retirement tab as HGI Multifamily Credit Select Fund, and HGI2 is HGI
+        // Multifamily Credit II Select Fund ... better to list the full name instead of the
+        // abbreviations"), not the abbreviated 'HGI1'/'HGI2' this used to show.
+        const rawSymbol = (row.dataset.symbol || '').toUpperCase();
+        const HGI_FULL_NAMES = { 'PRIVATE': 'HGI Multifamily Credit Select Fund', 'HGI2': 'HGI Multifamily Credit II Select Fund' };
+        const ticker = HGI_FULL_NAMES[rawSymbol] || rawSymbol;
         if (!ticker) return;
         const mktVal  = parseFloat(row.dataset.mktVal)  || 0;
         const shares  = parseFloat(row.dataset.shares)  || 0;
