@@ -1016,8 +1016,17 @@
   </div>
 </div>
 
+<!-- Local secrets, not in git. Absent = no Gist push, everything else works. -->
+<script src="schwab_secrets.js"></script>
+
 <script>
   // Central store sync — keeps all devices in sync via server store.json
+  // Bump when changing anything that affects the prices or figures pushed to
+  // mobile. Stamped into every Gist/snapshot payload so a stale open tab is
+  // identifiable from its output rather than by hunting browser windows --
+  // see the note on payload.buildVersion in syncToCloud.
+  const BUILD_VERSION = '2026-08-03-schwab-primary';
+
   const _STORE_BASE = window.location.protocol === 'file:' ? 'http://localhost:7843' : window.location.origin;
   const _STORE_SKIP = new Set(['alphapicks_log_pending']); // transient keys, don't sync
 
@@ -1111,7 +1120,13 @@
   //        → New token → select scope "gist" only → copy token below.
   //        Then: gist.github.com → New gist → filename "mobile_data.json" → content "{}"
   //        → Create secret gist → copy the Gist ID from the URL.
-  const GIST_TOKEN = 'REDACTED_TOKEN_REMOVED';
+  // Supplied by schwab_secrets.js, which is NOT in git (see that file). Never
+  // hardcode it here: this file is committed to a public repo, and a literal
+  // token on this line was scrubbed from history on 2026-08-01 and then blocked
+  // again by push protection on 2026-08-03 when fresh commits reintroduced it.
+  //
+  // Absent token simply disables the Gist push; everything else works.
+  const GIST_TOKEN = window.GIST_TOKEN ?? '';
   const GIST_ID    = 'ac2630f3f93387e8c6931ebb27d694a7';
   const GIST_USER  = 'arielsacerdoti';
 
@@ -2447,6 +2462,13 @@
 
       const payload = {
         ts:              Date.now(),
+        // Which build produced this snapshot. A dashboard tab left open keeps
+        // running whatever code it loaded, and on 2026-08-03 a stale tab
+        // published Thursday's closes for hours while a freshly-refreshed tab
+        // displayed the correct ones -- indistinguishable from the outside, and
+        // it cost a long diagnosis. Stamping the payload makes "which tab wrote
+        // this" answerable by reading the Gist instead of hunting windows.
+        buildVersion:    BUILD_VERSION,
         activePositions,
         qgiPositions,
         soldRows:   JSON.parse(localStorage.getItem('alphapicks_sold_rows') || '[]'),
@@ -4104,12 +4126,43 @@
     // corrupting G/L, and let the caller fall through to Yahoo.
     if (!prevClose || Math.abs((price - prevClose) / prevClose) > 0.5) return null;
     const extValid = ext && ext.quoteTime > 0 && ext.lastPrice > 0;
-    return normaliseQuote({
+    const out = normaliseQuote({
       regularMarketPrice:         price,
       regularMarketPreviousClose: prevClose,
       preMarketPrice:  (extValid && session === 'PRE')  ? ext.lastPrice : null,
       postMarketPrice: (extValid && session === 'POST') ? ext.lastPrice : null,
     });
+    // NOTE — do NOT treat a missing `extended` block as "did not trade outside
+    // regular hours". It only means SCHWAB is not reporting one. Verified
+    // 2026-08-03 at 05:00 ET: Schwab returned no extended data for BTSG or ICHR
+    // while Yahoo had genuine pre-market prints for both (60.80 at 04:24,
+    // 75.10 at 04:31). An earlier version set an `extResolved` flag here to skip
+    // the Yahoo extended-hours fallback and cut request volume; it silently
+    // removed PRE/AH quotes for every symbol Schwab happens not to cover.
+    // The request flood is solved by limiting concurrency instead — see
+    // fetchExtendedHoursBatched.
+    return out;
+  }
+
+  // Extended-hours lookups, 6 at a time.
+  //
+  // The naive `Promise.all(symbols.map(fetchExtendedHours))` fired one request
+  // per symbol simultaneously — ~50 of them — at a SINGLE-THREADED PowerShell
+  // proxy that handles one at a time. Desktop survived it (10s timeout, requests
+  // just queued); mobile aborts each attempt at 4s and cascaded to public CORS
+  // proxies, which is why the same code degraded far worse there.
+  //
+  // 6 matches the batching already used for the Yahoo chart loops. Order of
+  // results matches the input array, and a failed symbol yields null rather than
+  // rejecting the batch.
+  async function fetchExtendedHoursBatched(symbols) {
+    const out = new Array(symbols.length).fill(null);
+    for (let i = 0; i < symbols.length; i += 6) {
+      const slice = symbols.slice(i, i + 6);
+      const res = await Promise.all(slice.map(s => fetchExtendedHours(s).catch(() => null)));
+      res.forEach((r, j) => { out[i + j] = r; });
+    }
+    return out;
   }
 
   // Fetches ALL requested symbols in a single call. Returns {} (not a throw) on any
@@ -4173,8 +4226,21 @@
     // Search window [preStartMs − 14 h, preStartMs − 11.5 h] = [2:00 PM, 4:30 PM ET yesterday].
     let prev;
     if (state === 'PRE' && preStartMs > 0) {
-      prev = lastCloseInPeriod(preStartMs - 14 * 3600000, preStartMs - 11.5 * 3600000)
-          ?? meta.chartPreviousClose ?? meta.previousClose;
+      // NO FALLBACK to chartPreviousClose here. During PRE it is the close two
+      // sessions back (see above), and callers assign this value straight into
+      // regularMarketPrice — so a failed scan did not merely lose the reference,
+      // it OVERWROTE the correct current price with a stale one and inverted the
+      // last session's move.
+      //
+      // Confirmed 2026-08-03: SNEX displayed 77.62 "+1.37%" when Friday closed at
+      // 76.57. Schwab, Yahoo and Google Finance all agreed on 76.57 with a prior
+      // close of 77.62 — Friday's 1.05 LOSS was being shown as a gain. BTSG hit
+      // the same thing at 72.88 "+22.06%" against a real 59.71.
+      //
+      // Returning null instead leaves whatever the caller already had (normally
+      // Schwab's correct close) untouched. Missing extended-hours data is a far
+      // smaller problem than confidently wrong prices.
+      prev = lastCloseInPeriod(preStartMs - 14 * 3600000, preStartMs - 11.5 * 3600000);
     } else {
       prev = meta.chartPreviousClose ?? meta.previousClose;  // POST: field is correct
     }
@@ -4196,9 +4262,13 @@
       // shown is still the most recent actual trade instead of going blank.
       if (pre == null && preStartMs > 0) {
         const lastNightPost = lastCloseInPeriod(preStartMs - 12 * 3600000, preStartMs - 8 * 3600000);
-        if (lastNightPost != null && prev) {
+        if (lastNightPost != null) {
+          // Show the frozen trade even when `prev` could not be established --
+          // the price is a real print either way, and the caller recomputes the
+          // daily % against its own (Schwab-sourced) reference. Only the change
+          // figures are withheld, never the price.
           post = lastNightPost;
-          postChg = post - prev; postPct = (postChg / prev) * 100;
+          if (prev) { postChg = post - prev; postPct = (postChg / prev) * 100; }
         }
       }
     } else if (state === 'POST' || state === 'CLOSED') {
@@ -4490,7 +4560,7 @@
       });
 
       if (needsExtFallback.length) {
-        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        const extResults = await fetchExtendedHoursBatched(needsExtFallback);
         needsExtFallback.forEach((t, i) => {
             const ext = extResults[i];
             if (ext && quoteMap[t]) {
@@ -4763,7 +4833,7 @@
         return session === 'PRE' ? q.preMarketPrice == null : q.postMarketPrice == null;
       });
       if (needsExtFallback.length) {
-        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        const extResults = await fetchExtendedHoursBatched(needsExtFallback);
           needsExtFallback.forEach((t, i) => {
             const ext = extResults[i];
             if (ext && quoteMap[t]) {
@@ -7064,7 +7134,7 @@
       });
 
       if (needsExt.length) {
-        const extRes = await Promise.all(needsExt.map(fetchExtendedHours));
+        const extRes = await fetchExtendedHoursBatched(needsExt);
         needsExt.forEach((s, i) => {
             const ext = extRes[i];
             if (ext && quoteMap[s]) {

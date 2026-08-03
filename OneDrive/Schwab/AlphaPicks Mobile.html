@@ -617,7 +617,14 @@
   // GitHub Gist — same values as in AlphaPicks Portfolio.html
   const GIST_USER  = 'arielsacerdoti';
   const GIST_ID    = 'ac2630f3f93387e8c6931ebb27d694a7';
-  const GIST_TOKEN = 'REDACTED_TOKEN_REMOVED'; // read-only gist scope
+  // No token here, deliberately. This file is copied verbatim to the PUBLIC
+  // GitHub Pages repo, and a hardcoded PAT was re-added to git history twice
+  // (scrubbed 2026-08-01, blocked again by push protection 2026-08-03).
+  //
+  // It is not needed: the gist is public, so the raw-URL fetch path works
+  // unauthenticated. GIST_TOKEN only ever helped the gh-api fallback, which is
+  // skipped when empty.
+  const GIST_TOKEN = '';
 
   // HOME_SERVER candidates: your desktop's LAN IP and Tailscale IP, both on port 7843.
   // Update these if your router/Tailscale assigns new addresses.
@@ -653,6 +660,27 @@
       HOME_MODE = true;
     } catch {
       HOME_MODE = false; // both candidates failed/timed out
+    }
+  }
+
+  // Cheap liveness check against the CONFIRMED HOME_SERVER. Distinguishes
+  // "the desktop server is busy" from "there is no desktop server", which
+  // /mobile-data alone cannot tell apart -- it does real work (Schwab positions
+  // + prices) so a timeout there says nothing about reachability.
+  //
+  // /schwab/status is used deliberately: it returns immediately and does not
+  // touch the price path. Not `mode:'no-cors'` here (unlike detectHomeMode,
+  // which only needs to know that *something* answered) because we need to read
+  // resp.ok -- an opaque response would make a 500 look like success.
+  async function probeHomeServer(timeoutMs = 2500) {
+    try {
+      const ac = new AbortController();
+      const t  = setTimeout(() => ac.abort(), timeoutMs);
+      const resp = await fetch(`${HOME_SERVER}/schwab/status`, { cache: 'no-store', signal: ac.signal });
+      clearTimeout(t);
+      return resp.ok;
+    } catch {
+      return false;
     }
   }
 
@@ -983,8 +1011,21 @@
         }
       } catch (e) {
         clearTimeout(tid);
-        dbg(`local server fail: ${e.message} → trying Gist`);
-        HOME_MODE = false;
+        // A slow or failed /mobile-data does NOT mean we are away from home.
+        // That endpoint recomputes live Schwab positions and prices when its
+        // 10-minute cache is stale, and any hiccup used to flip HOME_MODE off
+        // PERMANENTLY for the rest of the session. Because Schwab price
+        // fetching is gated on HOME_MODE, that silently downgraded the whole
+        // page to away-mode behaviour while sitting at home: no Schwab quotes,
+        // every symbol falling through to Yahoo, and ~40 extended-hours chart
+        // requests per refresh. Confirmed 2026-08-03 -- the page was serving
+        // FROM localhost:7843 and still reported HOME_MODE=false.
+        //
+        // Re-probe with a cheap endpoint before giving up. Only a server that
+        // genuinely does not answer means away mode; a busy one still gives us
+        // live Schwab prices even if this snapshot has to come from the Gist.
+        HOME_MODE = await probeHomeServer();
+        dbg(`local /mobile-data fail: ${e.message} → server reachable: ${HOME_MODE}`);
       }
     }
 
@@ -1001,7 +1042,7 @@
         const attempts = [
           // GitHub REST API — authenticated, reliable CORS from any origin
           { label: 'gh-api', fn: () => fetchWithTimeout(`https://api.github.com/gists/${GIST_ID}`, 8000,
-                { headers: { 'Authorization': `Bearer ${GIST_TOKEN}`, 'Accept': 'application/vnd.github+json' } })
+                { headers: { ...(GIST_TOKEN ? { 'Authorization': `Bearer ${GIST_TOKEN}` } : {}), 'Accept': 'application/vnd.github+json' } })
               .then(async r => {
                 if (!r.ok) throw new Error(`status ${r.status}`);
                 const g = await r.json();
@@ -2054,12 +2095,36 @@
     // corrupting G/L, and let the caller fall through to Yahoo.
     if (!prevClose || Math.abs((price - prevClose) / prevClose) > 0.5) return null;
     const extValid = ext && ext.quoteTime > 0 && ext.lastPrice > 0;
-    return normaliseQuote({
+    const out = normaliseQuote({
       regularMarketPrice:         price,
       regularMarketPreviousClose: prevClose,
       preMarketPrice:  (extValid && session === 'PRE')  ? ext.lastPrice : null,
       postMarketPrice: (extValid && session === 'POST') ? ext.lastPrice : null,
     });
+    // NOTE — a missing `extended` block does NOT mean the symbol stayed flat
+    // outside regular hours; it only means SCHWAB is not reporting a quote.
+    // Verified 2026-08-03 05:00 ET: Schwab had no extended data for BTSG or
+    // ICHR while Yahoo carried real pre-market prints for both (60.80 at 04:24,
+    // 75.10 at 04:31). An earlier `extResolved` flag skipped the Yahoo
+    // extended-hours fallback to cut request volume and silently removed PRE/AH
+    // quotes for every symbol Schwab does not cover. Request volume is handled
+    // by batching instead — see fetchExtendedHoursBatched.
+    return out;
+  }
+
+  // Extended-hours lookups, 6 at a time. An unbounded
+  // Promise.all(symbols.map(fetchExtendedHours)) fired ~50 simultaneous requests
+  // at the desktop's SINGLE-THREADED proxy; this page aborts each at 4s and then
+  // cascades through public CORS proxies, so the pile-up hurt far more here than
+  // on desktop. 6 matches the batching used for the Yahoo chart loops.
+  async function fetchExtendedHoursBatched(symbols) {
+    const out = new Array(symbols.length).fill(null);
+    for (let i = 0; i < symbols.length; i += 6) {
+      const slice = symbols.slice(i, i + 6);
+      const res = await Promise.all(slice.map(s => fetchExtendedHours(s).catch(() => null)));
+      res.forEach((r, j) => { out[i + j] = r; });
+    }
+    return out;
   }
 
   async function fetchSchwabQuotesBatched(symbols) {
@@ -2088,7 +2153,6 @@
     const tp     = meta.currentTradingPeriod ?? {};
     const stamps = result.timestamp ?? [];
     const closes = result.indicators?.quote?.[0]?.close ?? [];
-    const prev   = meta.chartPreviousClose ?? meta.previousClose;
     const state  = getSessionFromClock();
     const preStartMs  = (tp.pre?.start  ?? 0) * 1000;
     const preEndMs    = (tp.pre?.end    ?? 0) * 1000;
@@ -2101,6 +2165,24 @@
       }
       return null;
     }
+
+    // Reference price = YESTERDAY's regular close.
+    //
+    // meta.chartPreviousClose is the close before the chart's start period.
+    // During PRE the range=1d chart starts at yesterday's OPEN, so that field is
+    // the close TWO SESSIONS BACK — using it inverts the last session's move.
+    // Confirmed 2026-08-03: SNEX showed 77.62 "+1.37%" when Friday closed at
+    // 76.57; Schwab, Yahoo and Google Finance all agreed on 76.57 with 77.62 as
+    // the prior close, i.e. Friday's 1.05 LOSS rendered as a gain.
+    //
+    // During PRE, scan the candles for yesterday's actual regular close instead,
+    // and return null rather than falling back — a missing reference costs a
+    // change percentage, a wrong one corrupts the price itself.
+    // POST is unaffected: the chart starts at today's open there, so the field
+    // genuinely is yesterday.
+    const prev = (state === 'PRE' && preStartMs > 0)
+      ? lastCloseInPeriod(preStartMs - 14 * 3600000, preStartMs - 11.5 * 3600000)
+      : (meta.chartPreviousClose ?? meta.previousClose);
     let pre = null, preChg = null, prePct = null;
     let post = null, postChg = null, postPct = null;
     if (state === 'PRE') {
@@ -2114,9 +2196,12 @@
       // `stamps`/`closes`. Fall back to that frozen close instead of going blank.
       if (pre == null && preStartMs > 0) {
         const lastNightPost = lastCloseInPeriod(preStartMs - 12 * 3600000, preStartMs - 8 * 3600000);
-        if (lastNightPost != null && prev) {
+        if (lastNightPost != null) {
+          // Show the frozen trade even without a reference — it is a real print,
+          // and the caller recomputes the daily % against its own Schwab-sourced
+          // base. Only the change figures are withheld, never the price.
           post = lastNightPost;
-          postChg = post - prev; postPct = (postChg / prev) * 100;
+          if (prev) { postChg = post - prev; postPct = (postChg / prev) * 100; }
         }
       }
     } else if (state === 'POST' || state === 'CLOSED') {
@@ -2601,7 +2686,7 @@
         return session === 'PRE' ? q.preMarketPrice == null : q.postMarketPrice == null;
       });
       if (needsExtFallback.length) {
-        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        const extResults = await fetchExtendedHoursBatched(needsExtFallback);
         needsExtFallback.forEach((t, i) => {
           const ext = extResults[i];
           if (ext && qMap[t]) {
@@ -2682,7 +2767,7 @@
         return session === 'PRE' ? q.preMarketPrice == null : q.postMarketPrice == null;
       });
       if (needsExtFallback.length) {
-        const extResults = await Promise.all(needsExtFallback.map(fetchExtendedHours));
+        const extResults = await fetchExtendedHoursBatched(needsExtFallback);
         needsExtFallback.forEach((t, i) => {
           const ext = extResults[i];
           if (ext && quoteMap[t]) {
@@ -2729,6 +2814,29 @@
       }
     });
 
+    // ── Which source wins: the desktop's snapshot, or our own quotes? ────────
+    // The header total has always summed the DESKTOP-synced dayPct (see the
+    // "Server-does-calculations" block below) while each row rendered the
+    // percentage WE fetched. Two sources for one fact, so they contradict each
+    // other whenever the sources differ -- and they differ routinely, because
+    // the desktop reads Schwab (which reports pre/post-market trades) while
+    // this page can only reach Yahoo, which for most symbols shows nothing
+    // outside regular hours. That is how a "+$5,398" header sat above rows all
+    // reading "+0.00%" on 2026-08-03.
+    //
+    // Resolution: when the desktop's snapshot is recent, its figures win for
+    // BOTH the row and the header. That keeps them consistent by construction
+    // and gives this page the extended-hours moves it cannot fetch itself.
+    // Once the snapshot goes stale (laptop asleep) we fall back to our own
+    // quotes, which are then the only live source available.
+    //
+    // Threshold is 2x the desktop's 5-minute Gist push interval, so an ordinary
+    // missed push does not bounce the display between the two sources.
+    const _snapTs   = parseInt(document.body.dataset.syncTs || '0') || 0;
+    const _snapAge  = _snapTs ? Date.now() - _snapTs : Infinity;
+    const SNAP_FRESH_MS = 10 * 60 * 1000;
+    const snapshotFresh = _snapAge < SNAP_FRESH_MS;
+
     rows.forEach(row => {
       const ticker = row.dataset.ticker;
       const shares = parseFloat(row.dataset.shares);
@@ -2739,11 +2847,29 @@
       // postMarketPrice is checked on field presence alone (not gated to isPost) so the
       // frozen last trade keeps showing through CLOSED (evening/weekend) and the early-PRE
       // gap before real pre-market ticks appear — always the most recent actual quote.
-      const price    = q.isPre && q.preMarketPrice  != null ? q.preMarketPrice
-                     : q.postMarketPrice != null ? q.postMarketPrice
-                     : q.regularMarketPrice;
-      const priceTag = q.isPre && q.preMarketPrice  != null ? 'PRE'
-                     : q.postMarketPrice != null ? 'AH' : null;
+      const localPrice = q.isPre && q.preMarketPrice  != null ? q.preMarketPrice
+                       : q.postMarketPrice != null ? q.postMarketPrice
+                       : q.regularMarketPrice;
+      const localTag   = q.isPre && q.preMarketPrice  != null ? 'PRE'
+                       : q.postMarketPrice != null ? 'AH' : null;
+
+      // Desktop snapshot values for this row, used together or not at all --
+      // taking its percentage but our price (or vice versa) is what produced the
+      // contradiction in the first place.
+      const _syncPx     = parseFloat(row.dataset.currentPrice);
+      const _syncPctRaw = row.dataset.dayPct;
+      const _syncPct    = (_syncPctRaw !== '' && _syncPctRaw != null) ? parseFloat(_syncPctRaw) : null;
+      const useSync     = snapshotFresh && _syncPx > 0 && _syncPct != null && isFinite(_syncPct);
+
+      const price = useSync ? _syncPx : localPrice;
+
+      // The snapshot ships no PRE/AH label, so infer one: outside regular hours a
+      // synced price that differs from the regular-session reference means the
+      // desktop saw a trade we could not.
+      const priceTag = !useSync ? localTag
+        : (q.regularMarketPrice && Math.abs(_syncPx - q.regularMarketPrice) > 1e-9)
+          ? (q.state === 'PRE' ? 'PRE' : q.state === 'POST' || q.state === 'CLOSED' ? 'AH' : null)
+          : null;
       if (!price) return;
 
       const prevPrice = parseFloat(row.querySelector('.cur-price').innerText.replace(/[^0-9.]/g, '')) || 0;
@@ -2760,10 +2886,14 @@
       const isGain = gain >= 0, sign = isGain ? '+' : '-';
       const cls = isGain ? 'gain' : 'loss';
 
+      // ONE resolved day-% per row, used for both the row display and the header
+      // total below. Previously these were computed independently from different
+      // sources, which is what let them disagree.
       const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
       const ref        = q.regularMarketPrice;
-      const dayChange  = isExtHours && ref ? price - ref : q.regularMarketChange;
-      const dayPct     = isExtHours && ref ? (price - ref) / ref * 100 : q.regularMarketChangePercent;
+      const localPct   = isExtHours && ref ? (localPrice - ref) / ref * 100
+                                           : q.regularMarketChangePercent;
+      const dayPct     = useSync ? _syncPct : localPct;
 
       // Day change % (top-right, large)
       const dayChgEl = row.querySelector('.day-chg');
@@ -2802,15 +2932,15 @@
         }
       }
 
-      // Server-does-calculations: use desktop-synced dayPct (set by appendPositionCard from
-      // syncToCloud push) for the portfolio total. Value · syncedPct / (100 + syncedPct) is
-      // exact (recovers the same dollar change the desktop computed). Fall back to local only
-      // when no synced value exists (first load before any push).
-      const _syncPctStr  = row.dataset.dayPct;
-      const _syncPct     = (_syncPctStr !== '' && _syncPctStr != null) ? parseFloat(_syncPctStr) : null;
-      const posDayChange = _syncPct != null
-          ? value * _syncPct / (100 + _syncPct)
-          : (dayChange != null ? dayChange * shares : null);
+      // Header total, built from the SAME resolved dayPct the row just displayed --
+      // never re-read from the snapshot here. This used to fetch row.dataset.dayPct
+      // independently, so the header summed the desktop's percentages while the rows
+      // showed ours; when the two sources disagreed the total silently stopped
+      // matching the positions under it.
+      // value · pct / (100 + pct) recovers the exact dollar change from a percentage.
+      const posDayChange = (dayPct != null && isFinite(dayPct))
+          ? value * dayPct / (100 + dayPct)
+          : null;
       if (posDayChange != null) { totalDayChange += posDayChange; hasDayChange = true; }
       if (prevPrice && price !== prevPrice) flashRow(row, price > prevPrice ? 'up' : 'down');
     });
