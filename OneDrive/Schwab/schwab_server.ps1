@@ -7,7 +7,16 @@ $scriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $configFile = Join-Path $scriptDir 'schwab_config.json'
 $tokenFile  = Join-Path $scriptDir 'schwab_tokens.json'
 $dashFile   = Join-Path $scriptDir 'AlphaPicks Portfolio.html'
-$mobileFile = Join-Path $scriptDir 'AlphaPicks Mobile.html'
+# Points OUTSIDE this folder, at the actual GitHub Pages deploy source
+# (github.com/arielsacerdoti/alphapicks-mobile, cloned locally to
+# OneDrive\alphapicks-mobile) -- deliberately not a second local copy. A
+# duplicate "AlphaPicks Mobile.html" living here, edited here, and pushed to a
+# DIFFERENT repo than the one Pages actually serves is exactly what let a
+# week of real mobile fixes silently never reach the phone (confirmed
+# 2026-08-10: the deployed repo was still on an 2026-08-03 commit). One file,
+# edited in place, is what makes that class of bug structurally impossible
+# instead of just less likely.
+$mobileFile = 'C:\Users\sacer\OneDrive\alphapicks-mobile\index.html'
 
 # store.json lives OUTSIDE the OneDrive-synced folder on purpose: this file has exactly one
 # legitimate writer (this server process). Keeping it in the synced folder let a second
