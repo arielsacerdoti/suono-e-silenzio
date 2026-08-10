@@ -384,10 +384,11 @@
   </div>
   <div class="header-meta-row">
     <div class="as-of">Rev. <span id="revision-date"></span>
-      <script>
-        document.getElementById('revision-date').textContent =
-          new Date(document.lastModified).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-      </script>
+      <!-- Populated later, after REVISION_DATE is declared -- see that constant's comment.
+           document.lastModified was never actually meaningful here: this page is served
+           with no Last-Modified header locally (so it defaulted to "now", not the real edit
+           date) and GitHub Pages' CDN value for it is not something we control or can trust
+           either. Confirmed 2026-08-10. -->
     </div>
     <div class="market-row">
       <span class="market-item">
@@ -613,6 +614,18 @@
 </div>
 
 <script>
+  // Bump on every meaningfully-behavior-changing commit to THIS file (not typo/comment
+  // fixes) -- independent of Portfolio.html's own BUILD_VERSION, since the two files are
+  // edited and deployed independently and each needs to say when IT was last really changed.
+  const REVISION_DATE = '2026-08-10';
+  {
+    const el = document.getElementById('revision-date');
+    if (el) {
+      el.textContent = new Date(REVISION_DATE + 'T12:00:00')
+        .toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+  }
+
   const FMP_KEY     = 'RifQbMNRIh92cgRC44u30scmkMK0l0gK';
   // GitHub Gist — same values as in AlphaPicks Portfolio.html
   const GIST_USER  = 'arielsacerdoti';

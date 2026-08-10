@@ -627,10 +627,8 @@
       <span id="refresh-label" style="font-size:.75rem;color:#8b949e">Loading prices…</span>
       <button onclick="openPortfolioChart(activeTabId())" title="Portfolio value history" style="margin-left:.5rem;background:transparent;border:1px solid #30363d;border-radius:6px;padding:3px 9px;color:#8b949e;font-size:0.75rem;cursor:pointer;line-height:1.4" onmouseover="this.style.color='#e6edf3'" onmouseout="this.style.color='#8b949e'">📈 History</button>
     </div>
-    <script>
-      document.getElementById('revision-date').textContent =
-        new Date(document.lastModified).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-    </script>
+    <!-- #revision-date is populated later, right after BUILD_VERSION's declaration --
+         that constant doesn't exist yet at this point in document order. -->
 
     <div class="stats-bar">
       <div class="stat-card">
@@ -1021,11 +1019,28 @@
 
 <script>
   // Central store sync — keeps all devices in sync via server store.json
-  // Bump when changing anything that affects the prices or figures pushed to
-  // mobile. Stamped into every Gist/snapshot payload so a stale open tab is
-  // identifiable from its output rather than by hunting browser windows --
-  // see the note on payload.buildVersion in syncToCloud.
-  const BUILD_VERSION = '2026-08-03-schwab-primary';
+  // Bump the date prefix on every meaningfully-behavior-changing commit to this file (not
+  // typo/comment fixes). Two consumers depend on it: it's stamped into every Gist/snapshot
+  // payload so a stale open tab is identifiable from its output rather than by hunting
+  // browser windows (see payload.buildVersion in syncToCloud), and it drives the "Revision
+  // as of" header display below -- replacing document.lastModified, which was NEVER
+  // actually meaningful here: the local server sends no Last-Modified header at all, so per
+  // spec the browser fell back to "now" and the header always read today's date regardless
+  // of when the file last changed. Confirmed 2026-08-10.
+  const BUILD_VERSION = '2026-08-10-schwab-primary';
+
+  // #revision-date lives much earlier in the document (the header), but has to be populated
+  // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
+  // <script> for why it isn't populated inline there.
+  {
+    const m = BUILD_VERSION.match(/^\d{4}-\d{2}-\d{2}/);
+    const el = document.getElementById('revision-date');
+    if (el) {
+      el.textContent = m
+        ? new Date(m[0] + 'T12:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+        : BUILD_VERSION;
+    }
+  }
 
   const _STORE_BASE = window.location.protocol === 'file:' ? 'http://localhost:7843' : window.location.origin;
   const _STORE_SKIP = new Set(['alphapicks_log_pending']); // transient keys, don't sync
