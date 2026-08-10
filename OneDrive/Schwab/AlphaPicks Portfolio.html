@@ -4111,8 +4111,14 @@
   //   extended.lastPrice covers pre- AND post-market with no separate fields, so
   //   which bucket it means is decided by the app's own clock-based session state
   //   (same reasoning as everywhere else in this app: API-reported state is not
-  //   trusted). extended.quoteTime === 0 means no extended-hours trade has happened
-  //   (stale/absent), so that case is treated as no pre/post price.
+  //   trusted). extended.quoteTime is the last two-sided-quote timestamp and is
+  //   routinely 0 outside regular hours even when a real trade printed -- confirmed
+  //   2026-08-06: MU showed extended.lastPrice=867.20 (a real ~3% PRE move off a
+  //   893.19 regular price) with quoteTime=0 and tradeTime=1786003188000. Checking
+  //   quoteTime alone silently discarded correct PRE/AH prices for every symbol
+  //   that had a trade but no active NBBO quote outside hours -- i.e. most of them.
+  //   tradeTime is the actual last-trade timestamp; check that instead (falling back
+  //   to quoteTime too, in case a future response populates that one instead).
   function normaliseSchwabQuote(sq, session) {
     const q = sq?.quote, reg = sq?.regular, ext = sq?.extended;
     if (!q) return null;
@@ -4125,7 +4131,7 @@
     // if that ever produces an implausible swing, reject the whole quote rather than risk
     // corrupting G/L, and let the caller fall through to Yahoo.
     if (!prevClose || Math.abs((price - prevClose) / prevClose) > 0.5) return null;
-    const extValid = ext && ext.quoteTime > 0 && ext.lastPrice > 0;
+    const extValid = ext && (ext.tradeTime > 0 || ext.quoteTime > 0) && ext.lastPrice > 0;
     const out = normaliseQuote({
       regularMarketPrice:         price,
       regularMarketPreviousClose: prevClose,
@@ -4186,8 +4192,16 @@
 
   // Extended-hours fallback: fetch 1m candles with includePrePost=true and find
   // the last candle inside today's pre- or post-market window.
+  //
+  // range=5d, not range=1d: confirmed 2026-08-06 that Yahoo's v8 chart silently
+  // returns zero candles (result present, timestamp/quote arrays both empty, no
+  // error) for interval=1m + includePrePost=true + range=1d specifically -- every
+  // symbol, not just illiquid ones (reproduced on MU and SPY). range=5d with the
+  // same interval+includePrePost returns thousands of candles including today's,
+  // and the window-scanning below already filters down to today's period by
+  // timestamp regardless of how many days came back, so nothing else changes.
   async function fetchExtendedHours(ticker) {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d&includePrePost=true&_cb=${Date.now()}`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=5d&includePrePost=true&_cb=${Date.now()}`;
     const data = await fetchJSON(url);
     const result = data?.chart?.result?.[0];
     if (!result) return null;
@@ -4912,6 +4926,15 @@
 
   // Fetches historical daily closes for all current tickers for a specific past date.
   // Builds and saves a log entry to localStorage, then attempts to auto-save to Excel.
+  //
+  // Batched 6 at a time, not Promise.all(tickers.map(...)) unbounded: confirmed 2026-08-08
+  // that firing all ~21 Alpha Picks tickers' fetches simultaneously against the single-
+  // threaded local proxy (ap_proxy.ps1) can pile up and time out together -- one silent
+  // failure ("no historical prices found", nothing written, no error) on a run that
+  // succeeded moments later on retry with no code or data change. Same fix already applied
+  // to fetchExtendedHoursBatched for the same underlying proxy; this was the one caller
+  // still firing unbounded. A per-ticker catch also means one bad symbol can no longer
+  // sink the whole batch via Promise.all's fail-fast behaviour.
   async function backfillLogEntry(dateKey) {
     const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const [y, m, d] = dateKey.split('-');
@@ -4919,22 +4942,27 @@
 
     // Fetch 5d daily chart per ticker to get close on the target date
     const closes = {}, prevCloses = {};
-    await Promise.all(tickers.map(async t => {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1d&range=5d&_cb=${Date.now()}`;
-      const data = await fetchJSON(url);
-      const result = data?.chart?.result?.[0];
-      if (!result) return;
-      const stamps = result.timestamp ?? [];
-      const cs     = result.indicators?.quote?.[0]?.close ?? [];
-      for (let i = 0; i < stamps.length; i++) {
-        const day = new Date(stamps[i] * 1000).toISOString().split('T')[0];
-        if (day === dateKey && cs[i] != null) {
-          closes[t] = cs[i];
-          if (i > 0 && cs[i - 1] != null) prevCloses[t] = cs[i - 1];
-          break;
-        }
-      }
-    }));
+    for (let bi = 0; bi < tickers.length; bi += 6) {
+      const batch = tickers.slice(bi, bi + 6);
+      await Promise.all(batch.map(async t => {
+        try {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1d&range=5d&_cb=${Date.now()}`;
+          const data = await fetchJSON(url);
+          const result = data?.chart?.result?.[0];
+          if (!result) return;
+          const stamps = result.timestamp ?? [];
+          const cs     = result.indicators?.quote?.[0]?.close ?? [];
+          for (let i = 0; i < stamps.length; i++) {
+            const day = new Date(stamps[i] * 1000).toISOString().split('T')[0];
+            if (day === dateKey && cs[i] != null) {
+              closes[t] = cs[i];
+              if (i > 0 && cs[i - 1] != null) prevCloses[t] = cs[i - 1];
+              break;
+            }
+          }
+        } catch (e) { console.warn(`[Backfill] ${t} failed:`, e.message); }
+      }));
+    }
 
     if (!Object.keys(closes).length) {
       console.log('[Log] Backfill: no historical prices found for', dateKey);

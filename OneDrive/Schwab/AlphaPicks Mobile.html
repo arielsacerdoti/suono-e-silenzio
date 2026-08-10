@@ -2094,7 +2094,11 @@
     // if that ever produces an implausible swing, reject the whole quote rather than risk
     // corrupting G/L, and let the caller fall through to Yahoo.
     if (!prevClose || Math.abs((price - prevClose) / prevClose) > 0.5) return null;
-    const extValid = ext && ext.quoteTime > 0 && ext.lastPrice > 0;
+    // extended.quoteTime is the last two-sided-quote time and is routinely 0 outside
+    // regular hours even when a real trade printed -- see the desktop's copy of this
+    // function for the confirmed case (MU, 2026-08-06). tradeTime is the actual
+    // last-trade timestamp; check that (falling back to quoteTime too).
+    const extValid = ext && (ext.tradeTime > 0 || ext.quoteTime > 0) && ext.lastPrice > 0;
     const out = normaliseQuote({
       regularMarketPrice:         price,
       regularMarketPreviousClose: prevClose,
@@ -2144,8 +2148,12 @@
     } catch { return {}; }
   }
 
+  // range=5d, not range=1d: confirmed 2026-08-06 that Yahoo's v8 chart silently returns
+  // zero candles for interval=1m + includePrePost=true + range=1d (every symbol, not just
+  // illiquid ones). range=5d with the same params works; the window-scan below already
+  // filters to today's period by timestamp regardless of how many days came back.
   async function fetchExtendedHours(ticker) {
-    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=1d&includePrePost=true&_cb=${Date.now()}`;
+    const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1m&range=5d&includePrePost=true&_cb=${Date.now()}`;
     const data = await fetchJSON(url);
     const result = data?.chart?.result?.[0];
     if (!result) return null;
@@ -2733,6 +2741,13 @@
       return;
     }
     setStatus('loading', 'Refreshing…');
+    // Fire-and-forget: fetchSpyBox() was written (ES=F futures for PRE/POST/CLOSED, away-mode
+    // aware) but never actually called from anywhere -- confirmed 2026-08-08, the header S&P
+    // chip was silently relying entirely on whatever spyChipText the desktop last pushed to the
+    // Gist, frozen at that value for as long as the desktop wasn't running to push a fresher
+    // one. Not awaited: it does its own network fetch and must not slow down position pricing,
+    // and a failure here (element missing, fetch error) must not abort the rest of this cycle.
+    fetchSpyBox().catch(e => console.warn('[SpyBox]', e.message));
     const session = getSessionFromClock();
     // CLOSED (evening + weekend) still needs the frozen last post-market trade fetched —
     // only skip extended-hours calls during REGULAR, when they're meaningless.

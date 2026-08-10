@@ -38,7 +38,12 @@ $API_BASE     = 'https://api.schwabapi.com'
 
 # --- Auto-log constants -------------------------------------------------------
 $FMP_KEY_SERVER   = 'RifQbMNRIh92cgRC44u30scmkMK0l0gK'
-$ALPHA_PICKS_SYMS = @('TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN','LITE','CSTM','NEXA','MXL','SNDK','SNEX','ICHR','BTSG','CRDO')
+# There is no live sync from the browser's `alphapicks_tagged` (localStorage) to this server --
+# it has no access to that. This list is a hand-maintained snapshot and WILL go stale again the
+# next time a ticker is added via the Buy flow. Missed CNC (bought 2026-08-03) for several days --
+# the unattended /auto-log fallback would have undercounted Alpha Picks by ~$10k on any day it
+# ran for real in that window. When adding a new Alpha Pick, add it here too.
+$ALPHA_PICKS_SYMS = @('TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN','LITE','CSTM','NEXA','MXL','SNDK','SNEX','ICHR','BTSG','CRDO','CNC')
 # Mirror of INITIAL_TAGGED_QGI in AlphaPicks Portfolio.html. Needed so the unattended raw
 # fallback path (below) excludes QG&I's own holdings from the Brokerage bucket the same way it
 # already excludes Alpha Picks' -- without this, QG&I's real positions (same physical brokerage
@@ -126,6 +131,31 @@ function Write-YahooFailure($symbol) {
         if ((Get-Item $YAHOO_FAILURE_LOG -ErrorAction SilentlyContinue).Length -gt 256KB) {
             $lines = Get-Content $YAHOO_FAILURE_LOG
             $lines | Select-Object -Last 2000 | Set-Content $YAHOO_FAILURE_LOG -Encoding UTF8
+        }
+    } catch {}
+}
+
+$AUTO_LOG_LOG = Join-Path $scriptDir 'autolog.log'
+
+# Durable run history for /auto-log — added 2026-08-06 after a day (2026-08-05) where BOTH the
+# browser's 4:05pm capture and this endpoint's own unattended fallback silently failed to produce
+# a real entry, and there was nothing to diagnose it from except Write-Host output that only ever
+# went to a console window nobody was watching. checkMissingLogEntry() quietly papered over the
+# gap the next morning with a degraded Alpha-Picks-only backfillLogEntry() placeholder (no
+# Brokerage/IRA/QG&I, no SPY/IRR) -- which is a fine safety net, but it means a real failure can
+# go completely unnoticed unless someone happens to compare that day's entry shape by hand.
+# One line per /auto-log call: who triggered it (the background timer vs. the browser's own
+# capture), and how it ended (browser fast-path, computed + written, degraded/aborted, or errored).
+# The background timer job also writes its own "decided to fire" line directly (see $autoLogJob
+# below) -- so a fire with no matching endpoint line means the HTTP call itself never landed,
+# and no fire line around 4:05pm ET on a trading day means the timer job itself was not alive.
+function Write-AutoLogEvent($msg) {
+    try {
+        $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $msg"
+        Add-Content -Path $AUTO_LOG_LOG -Value $line -Encoding UTF8
+        if ((Get-Item $AUTO_LOG_LOG -ErrorAction SilentlyContinue).Length -gt 256KB) {
+            $lines = Get-Content $AUTO_LOG_LOG
+            $lines | Select-Object -Last 2000 | Set-Content $AUTO_LOG_LOG -Encoding UTF8
         }
     } catch {}
 }
@@ -456,7 +486,13 @@ Write-Host "[Server] Auth      : http://localhost:$port/auth" -ForegroundColor C
 
 # --- Auto-log background job --------------------------------------------------
 $autoLogJob = Start-Job -ScriptBlock {
-    param($port, [string[]]$holidays)
+    param($port, [string[]]$holidays, [string]$logPath)
+    # Runs in its own runspace -- can't call the parent scope's Write-AutoLogEvent, so this
+    # writes directly. No trimming here (fires at most once/day); Write-AutoLogEvent's trimming
+    # on the far more frequent endpoint-side writes keeps the shared file bounded regardless.
+    function Log($m) {
+        try { Add-Content -Path $logPath -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  [timer] $m" -Encoding UTF8 } catch {}
+    }
     $firedDate = ''
     while ($true) {
         Start-Sleep -Seconds 30
@@ -468,13 +504,19 @@ $autoLogJob = Start-Job -ScriptBlock {
             if ($holidays -contains $dk) { continue }
             if ($et.Hour -eq 16 -and $et.Minute -eq 5 -and $firedDate -ne $dk) {
                 $firedDate = $dk
-                Invoke-WebRequest -Uri "http://localhost:$port/auto-log" -Method POST `
-                    -UseBasicParsing -TimeoutSec 120 -ErrorAction SilentlyContinue | Out-Null
+                Log "decided to fire for $dk -- POSTing /auto-log"
+                try {
+                    $r = Invoke-WebRequest -Uri "http://localhost:$port/auto-log" -Method POST `
+                        -UseBasicParsing -TimeoutSec 120 -ErrorAction Stop
+                    Log "POST returned HTTP $($r.StatusCode) for $dk"
+                } catch {
+                    Log "POST FAILED for $dk -- $_"
+                }
                 Write-Output "Auto-log fired for $dk"
             }
         } catch {}
     }
-} -ArgumentList $port, $MARKET_HOLIDAYS
+} -ArgumentList $port, $MARKET_HOLIDAYS, $AUTO_LOG_LOG
 
 Write-Host "[Server] Auto-log job started (fires at 4:05 PM ET on trading days)" -ForegroundColor Cyan
 
@@ -1012,6 +1054,7 @@ return $null
     # ── /auto-log (POST — called by background job at 4:05 PM ET, or by browser Export Log) ────
     if ($path -eq '/auto-log' -and $meth -eq 'POST') {
         Write-Host "[Auto-log] Starting daily log capture..." -ForegroundColor Cyan
+        Write-AutoLogEvent "endpoint entered (caller=$(if ($ctx.Request.ContentLength64 -gt 0) { 'browser' } else { 'unattended/timer' }))"
         try {
             # Load store
             $store = @{}
@@ -1034,6 +1077,7 @@ return $null
 
             if ($browserPayload -and $browserPayload.entry) {
                 Write-Host "[Auto-log] Using browser-provided entry (fast path)" -ForegroundColor Cyan
+                Write-AutoLogEvent "browser fast-path: entry for $(if ($browserPayload.entry.date) { $browserPayload.entry.date } else { $browserPayload.entry._key })"
                 $log = @()
                 if ($browserPayload.fullLog) {
                     try { $log = Get-LogArray $browserPayload.fullLog } catch {}
@@ -1063,6 +1107,7 @@ return $null
 
             # Get Schwab positions first so we know all symbols to fetch
             $tok = Get-ValidToken
+            if (-not $tok) { Write-AutoLogEvent "no valid Schwab token -- proceeding without live positions" }
             $schwabPos = @()
             if ($tok) {
                 try {
@@ -1139,6 +1184,7 @@ return $null
             $pricedCount = ($allFmpSyms | Where-Object { $prices.ContainsKey($_) }).Count
             if ($allFmpSyms.Count -gt 0 -and ($pricedCount / $allFmpSyms.Count) -lt 0.6) {
                 Write-Host "[Auto-log] Aborting: only $pricedCount/$($allFmpSyms.Count) symbols priced (FMP/Yahoo both degraded) — not writing a flat snapshot" -ForegroundColor Red
+                Write-AutoLogEvent "ABORTED -- only $pricedCount/$($allFmpSyms.Count) symbols priced (FMP/Yahoo both degraded); no entry written"
                 Write-PriceAlert $pricedCount $allFmpSyms.Count $store $storeFile
                 Send-Json $res @{ ok = $false; error = "price sources degraded: $pricedCount/$($allFmpSyms.Count) symbols priced" } 503
                 continue
@@ -1323,6 +1369,7 @@ return $null
             $store | ConvertTo-Json -Depth 10 -Compress | Set-Content $storeFile -Encoding UTF8
 
             Write-Host "[Auto-log] Done. AP=$([Math]::Round($apValue,0)) BRK=$([Math]::Round($brokerValue,0)) IRA=$([Math]::Round($iraValue,0))" -ForegroundColor Green
+            Write-AutoLogEvent "OK -- wrote $($entry.date): AP=$([Math]::Round($apValue,0)) BRK=$([Math]::Round($brokerValue,0)) IRA=$([Math]::Round($iraValue,0)) priced=$pricedCount/$($allFmpSyms.Count)"
 
             # Write XLSX
             Write-LogExcel -Log $log -Path $LOG_XLSX_PATH
@@ -1330,6 +1377,7 @@ return $null
             Send-Json $res @{ ok = $true; date = $entry.date; alphapicks = $entry.alphapicks; brokerage = $entry.brokerage; ira = $entry.ira }
         } catch {
             Write-Host "[Auto-log] ERROR: $_" -ForegroundColor Red
+            Write-AutoLogEvent "ERROR -- $_"
             Send-Json $res @{ ok = $false; error = "$_" } 500
         }
         continue
