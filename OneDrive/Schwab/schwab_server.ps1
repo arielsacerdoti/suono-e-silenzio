@@ -1114,6 +1114,23 @@ return $null
                 continue
             }
 
+            # Reference rates (SPY/IRR benchmarks) + QG&I positions, sourced from the browser's
+            # own last sync snapshot. NOT from $store -- $store.alphaPicksIrrRate (and the
+            # brokerage/ira/qgi equivalents) is never actually written by the browser; syncToCloud()
+            # posts those fields to /save-mobile-data, which lands in this separate mobile_data.json
+            # file, not store.json. Confirmed 2026-08-10: every one of those $store.* keys was
+            # `undefined`, which is why alphapicks/brokerage/ira's spyPct/annualReturn/spyReturn came
+            # back null on every unattended run, permanently, not just that one day. QG&I is worse --
+            # this endpoint never computed a qgi block at all, because QG&I shares physical Schwab
+            # positions with other tabs for some tickers (e.g. "B") and splits them via the desktop's
+            # own group_alloc/sliceForGroup logic, which has no PowerShell equivalent here. Reading
+            # mobile_data.json's already-split qgiPositions sidesteps reimplementing that logic.
+            $mobileData = $null
+            $mobileDataFile = Join-Path $scriptDir 'mobile_data.json'
+            if (Test-Path $mobileDataFile) {
+                try { $mobileData = Get-Content $mobileDataFile -Raw | ConvertFrom-Json } catch {}
+            }
+
             # Get Schwab positions first so we know all symbols to fetch
             $tok = Get-ValidToken
             if (-not $tok) { Write-AutoLogEvent "no valid Schwab token -- proceeding without live positions" }
@@ -1291,21 +1308,50 @@ return $null
             $usdils = $null
             try { if ($store.usdils) { $usdils = [double]$store.usdils } } catch {}
 
-            # IRR + SPY benchmark rates — saved to store by browser via syncToCloud
+            # IRR + SPY benchmark rates — from mobile_data.json (see comment above; $store never
+            # has these keys).
             $apIrr     = $null; $apSpyIrr  = $null; $apSpySim  = $null
             $brkIrr    = $null; $brkSpyIrr = $null; $brkSpySim = $null
             $iraIrr    = $null; $iraSpyIrr = $null; $iraSpySim = $null
-            try {
-                if ($store.alphaPicksIrrRate    -ne $null) { $apIrr    = [double]$store.alphaPicksIrrRate    * 100 }
-                if ($store.alphaPicksSpyIrrRate -ne $null) { $apSpyIrr = [double]$store.alphaPicksSpyIrrRate * 100 }
-                if ($store.alphaPicksSpySimpleRet -ne $null) { $apSpySim = [double]$store.alphaPicksSpySimpleRet * 100 }
-                if ($store.brokerageIrrRate     -ne $null) { $brkIrr   = [double]$store.brokerageIrrRate     * 100 }
-                if ($store.brokerageSpyIrrRate  -ne $null) { $brkSpyIrr= [double]$store.brokerageSpyIrrRate  * 100 }
-                if ($store.brokerageSpySimpleRet -ne $null) { $brkSpySim= [double]$store.brokerageSpySimpleRet * 100 }
-                if ($store.iraIrrRate           -ne $null) { $iraIrr   = [double]$store.iraIrrRate           * 100 }
-                if ($store.iraSpyIrrRate        -ne $null) { $iraSpyIrr= [double]$store.iraSpyIrrRate        * 100 }
-                if ($store.iraSpySimpleRet      -ne $null) { $iraSpySim= [double]$store.iraSpySimpleRet      * 100 }
-            } catch {}
+            $qgiIrr    = $null; $qgiSpyIrr = $null; $qgiSpySim = $null
+            if ($mobileData) {
+                try {
+                    if ($mobileData.alphaPicksIrrRate    -ne $null) { $apIrr    = [double]$mobileData.alphaPicksIrrRate    * 100 }
+                    if ($mobileData.alphaPicksSpyIrrRate -ne $null) { $apSpyIrr = [double]$mobileData.alphaPicksSpyIrrRate * 100 }
+                    if ($mobileData.alphaPicksSpySimpleRet -ne $null) { $apSpySim = [double]$mobileData.alphaPicksSpySimpleRet * 100 }
+                    if ($mobileData.brokerageIrrRate     -ne $null) { $brkIrr   = [double]$mobileData.brokerageIrrRate     * 100 }
+                    if ($mobileData.brokerageSpyIrrRate  -ne $null) { $brkSpyIrr= [double]$mobileData.brokerageSpyIrrRate  * 100 }
+                    if ($mobileData.brokerageSpySimpleRet -ne $null) { $brkSpySim= [double]$mobileData.brokerageSpySimpleRet * 100 }
+                    if ($mobileData.iraIrrRate           -ne $null) { $iraIrr   = [double]$mobileData.iraIrrRate           * 100 }
+                    if ($mobileData.iraSpyIrrRate        -ne $null) { $iraSpyIrr= [double]$mobileData.iraSpyIrrRate        * 100 }
+                    if ($mobileData.iraSpySimpleRet      -ne $null) { $iraSpySim= [double]$mobileData.iraSpySimpleRet      * 100 }
+                    if ($mobileData.qgiIrrRate           -ne $null) { $qgiIrr   = [double]$mobileData.qgiIrrRate           * 100 }
+                    if ($mobileData.qgiSpyIrrRate        -ne $null) { $qgiSpyIrr= [double]$mobileData.qgiSpyIrrRate        * 100 }
+                    if ($mobileData.qgiSpySimpleRet      -ne $null) { $qgiSpySim= [double]$mobileData.qgiSpySimpleRet      * 100 }
+                } catch {}
+            }
+
+            # QG&I positions — aggregated directly from the browser's already-split snapshot
+            # (see comment above for why this doesn't get recomputed from raw Schwab positions).
+            $qgiValue = 0.0; $qgiInvested = 0.0; $qgiDailyChange = 0.0
+            $qgiTickers = @(); $qgiSymbols = @{}
+            if ($mobileData -and $mobileData.qgiPositions) {
+                foreach ($pos in $mobileData.qgiPositions) {
+                    if (-not $pos.ticker) { continue }
+                    $mktVal = [double]$pos.mktVal
+                    $cost   = [double]$pos.cost
+                    $qgiValue    += $mktVal
+                    $qgiInvested += $cost
+                    if ($pos.dayPct -ne $null) {
+                        $prevVal = $mktVal / (1 + [double]$pos.dayPct / 100)
+                        $qgiDailyChange += ($mktVal - $prevVal)
+                    }
+                    if (-not $qgiTickers.Contains($pos.ticker)) {
+                        $qgiTickers += $pos.ticker
+                        $qgiSymbols[$pos.ticker] = [Math]::Round([double]$pos.currentPrice, 4)
+                    }
+                }
+            }
 
             # Build log entry using browser-compatible field names.
             # Date must be the ET trading day this data is the close for, not whatever UTC
@@ -1357,6 +1403,24 @@ return $null
                     spyReturn     = $iraSpyIrr
                     _tickers      = $iraTickers
                     _symbols      = $iraSymbols
+                }
+            }
+            # QG&I is only added when the browser's snapshot actually had positions -- an empty
+            # zeroed-out block would look like a real (if bad) data point instead of what it is:
+            # no snapshot available, same as this whole fallback silently omitting it before.
+            if ($qgiTickers.Count -gt 0) {
+                $qgiTotalChg = [Math]::Round($qgiValue - $qgiInvested, 2)
+                $entry.qgi = @{
+                    totalInvested = [Math]::Round($qgiInvested, 2)
+                    currentValue  = [Math]::Round($qgiValue, 2)
+                    dailyChange   = [Math]::Round($qgiDailyChange, 2)
+                    totalChange   = $qgiTotalChg
+                    pctChange     = if ($qgiInvested -gt 0) { [Math]::Round($qgiTotalChg / $qgiInvested * 100, 4) } else { 0 }
+                    spyPct        = $qgiSpySim
+                    annualReturn  = $qgiIrr
+                    spyReturn     = $qgiSpyIrr
+                    _tickers      = $qgiTickers
+                    _symbols      = $qgiSymbols
                 }
             }
 
