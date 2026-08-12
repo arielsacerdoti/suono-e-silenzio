@@ -710,6 +710,21 @@ while ($listener.IsListening) {
 
         Write-Host "[Mobile] Cache stale — computing live data from Schwab + FMP..." -ForegroundColor Cyan
         try {
+            # This live-compute path has no PowerShell equivalent of the desktop's IRR engine or
+            # QG&I group-split logic (see /auto-log's identical comment), so it can only ever
+            # rebuild activePositions/brokerage/ira/prices -- never the *IrrRate/*SpyIrrRate/
+            # *SpySimpleRet fields or qgiPositions. Whichever browser tab last ran syncToCloud()
+            # wrote those into THIS SAME FILE via /save-mobile-data. Writing $payload2 over the
+            # file unconditionally therefore blanks them out the moment a phone check (or anything
+            # else hitting this endpoint) goes >10 min without a browser sync -- confirmed
+            # 2026-08-11: a mid-afternoon phone check clobbered the morning's browser-sourced IRR
+            # data, so that night's unattended /auto-log run (which reads mobile_data.json, per the
+            # 08:36am fix) logged nulls again despite that fix being live all day. Carry the prior
+            # file's browser-only fields forward so a live-compute refresh degrades gracefully
+            # (stale IRR numbers) instead of erasing them outright.
+            $prevMobileData = $null
+            if (Test-Path $mobileDataFile) { try { $prevMobileData = Get-Content $mobileDataFile -Raw | ConvertFrom-Json } catch {} }
+
             # Load store for sold/sales/alerts
             $store = @{}
             if (Test-Path $storeFile) { try { $store = Get-Content $storeFile -Raw | ConvertFrom-Json } catch {} }
@@ -906,6 +921,21 @@ return $null
                 brokerage       = $brokerage
                 ira             = $ira
                 serverComputed  = $true
+            }
+
+            # Carry forward the browser-only fields this endpoint can't compute (see comment
+            # above) so they survive a live-compute refresh instead of being dropped to null.
+            if ($prevMobileData) {
+                foreach ($k in @('qgiPositions','allocation',
+                                  'brokerageIrrRate','brokerageSpyIrrRate','brokerageSpySimpleRet',
+                                  'iraIrrRate','iraSpyIrrRate','iraSpySimpleRet',
+                                  'alphaPicksIrrRate','alphaPicksSpyIrrRate','alphaPicksSpySimpleRet',
+                                  'qgiIrrRate','qgiSpyIrrRate','qgiSpySimpleRet',
+                                  'qgiBenchIrrRate','qgiBenchSimpleRet',
+                                  'spyChipText','spyChipColor','spyChipLabel')) {
+                    $val = $prevMobileData.$k
+                    if ($null -ne $val) { $payload2[$k] = $val }
+                }
             }
 
             $json2 = $payload2 | ConvertTo-Json -Depth 10 -Compress
