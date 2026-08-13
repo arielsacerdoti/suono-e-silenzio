@@ -1144,6 +1144,25 @@ return $null
                 continue
             }
 
+            # The unattended timer fires unconditionally at a fixed ET time every trading day,
+            # with no idea whether a browser already captured+pushed today's REAL entry (fast
+            # path above) earlier that evening. Without this guard it always recomputes this
+            # endpoint's necessarily-degraded server-side approximation (no live IRR engine,
+            # $store.usdils is never populated by anything) and blindly overwrites whatever's
+            # already there -- confirmed 2026-08-12: the browser captured a correct entry (real
+            # usdils) at 23:00:11 ET, then the 23:05:03 timer fired 5 minutes later anyway and
+            # clobbered it with a null-usdils fallback entry. If today's trading day already has
+            # ANY logged entry, there's nothing for this unattended run to do.
+            $nowEt    = [System.TimeZoneInfo]::ConvertTimeBySystemTimeZoneId([DateTimeOffset]::UtcNow.UtcDateTime, 'Eastern Standard Time')
+            $todayKey = $nowEt.ToString('yyyy-MM-dd')
+            $existingLog = Get-LogArray $store.alphapicks_log
+            if ($existingLog | Where-Object { $_._key -eq $todayKey -or $_.date -eq $todayKey }) {
+                Write-Host "[Auto-log] Entry already exists for $todayKey -- skipping unattended fallback" -ForegroundColor Yellow
+                Write-AutoLogEvent "skipped -- entry already exists for $todayKey (already captured, likely by browser)"
+                Send-Json $res @{ ok = $true; date = $todayKey; source = 'skipped-already-logged' }
+                continue
+            }
+
             # Reference rates (SPY/IRR benchmarks) + QG&I positions, sourced from the browser's
             # own last sync snapshot. NOT from $store -- $store.alphaPicksIrrRate (and the
             # brokerage/ira/qgi equivalents) is never actually written by the browser; syncToCloud()
@@ -1334,9 +1353,18 @@ return $null
                 } catch {}
             }
 
-            # USD/ILS from store cache
+            # USD/ILS -- $store.usdils is never populated by anything (only the browser's own
+            # captureLogEntry() reads it, straight off the page's .usdils-box DOM element, and
+            # that never gets written back to store.json). Confirmed 2026-08-13: every unattended
+            # run has therefore always logged a blank usdils. Fetch the live rate directly instead
+            # -- same Yahoo v8 1m-chart source the desktop dashboard itself uses for forex.
             $usdils = $null
-            try { if ($store.usdils) { $usdils = [double]$store.usdils } } catch {}
+            try {
+                $yurl = 'https://query1.finance.yahoo.com/v8/finance/chart/USDILS=X?interval=1m&range=1d'
+                $yr   = Invoke-WebRequest -Uri $yurl -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop -Headers @{ 'User-Agent' = 'Mozilla/5.0' }
+                $fxMeta = ($yr.Content | ConvertFrom-Json).chart.result[0].meta
+                if ($fxMeta -and $fxMeta.regularMarketPrice) { $usdils = [double]$fxMeta.regularMarketPrice }
+            } catch { Write-Host "[Auto-log] USDILS fetch failed: $_" -ForegroundColor DarkGray }
 
             # IRR + SPY benchmark rates — from mobile_data.json (see comment above; $store never
             # has these keys).
