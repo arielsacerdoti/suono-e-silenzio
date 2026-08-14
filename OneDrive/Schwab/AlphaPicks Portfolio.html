@@ -8784,6 +8784,35 @@ ${soldRowsData.length ? `<table>
       ...document.querySelectorAll('#qgi-tbody tr[data-symbol]'),
     ];
 
+    // Add virtual rows for group members (Alpha Picks / QG&I) that are still TAGGED but no
+    // longer held (fully sold) -- e.g. RBCAA/R/COP sold 2026-08-13 to fund LMT/SPB/PSTL.
+    // renderGroupFromSchwab() only renders rows for symbols with a live Schwab position, so a
+    // fully-closed tagged symbol has no tbody row and therefore never reaches computeTabIRRStats's
+    // pooled cash-flow XIRR at all -- not just its sell, its ENTIRE buy history vanishes from the
+    // group's IRR the moment it's fully sold, understating "capital already at work" and making
+    // money recycled into a replacement position look like a fresh injection with no track record.
+    // Terminal value $0 (nothing left to hold) but its real Buy/Sell journal history still feeds
+    // the pool -- same mechanism the mock-sold virtual rows below already use, just sourced from
+    // the real delta-detection journal instead of test data.
+    const _closedGroupSyms = new Set();
+    ['alphapicks', 'qgi'].forEach(group => {
+      const cfg = GROUPS[group];
+      const liveSyms = new Set(Array.from(document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`)).map(r => r.dataset.ticker));
+      const journalAll = JSON.parse(localStorage.getItem('schwab_tx_journal') || '[]');
+      const csvAll      = JSON.parse(localStorage.getItem('schwab_csv_txns')   || '[]');
+      getTagged(group).forEach(sym => {
+        if (liveSyms.has(sym) || _closedGroupSyms.has(sym)) return; // still held, or already injected for another group
+        const hasHistory = journalAll.some(t => t.symbol === sym) || csvAll.some(t => t.symbol === sym);
+        if (!hasHistory) return; // tagged but never actually traded -- nothing to reconstruct
+        _closedGroupSyms.add(sym);
+        rows.push({
+          dataset: { symbol: sym, shares: '0', mktVal: '0', costBasis: '0', acctNum: '', date: '', group },
+          querySelector: () => null,
+          parentElement: { id: cfg.tbody },
+        });
+      });
+    });
+
     // Add virtual rows for mock-sold symbols not currently in any tbody.
     // These represent fully sold Alpha Picks positions — terminal value = $0,
     // but their transaction history (buy + mock sell) still feeds the XIRR pool.
