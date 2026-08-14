@@ -7969,9 +7969,18 @@ ${wfSVG}
     let cf = [];
     entries.forEach(e => (e.txns||[]).forEach(t => cf.push({ date: t.date, sym: e.sym, action: t.action, amount: t.amount, qty: t.qty })));
     cf.sort((a,b) => String(a.date).localeCompare(String(b.date)));
-    const cfHTML = cf.map(t => `<tr><td>${t.date}</td><td><b>${t.sym}</b></td><td>${t.action}</td>`
-      + `<td class=r>${t.qty?Number(t.qty).toFixed(4):'—'}</td>`
-      + `<td class="r ${(t.amount||0)<0?'red':'green'}">${(t.amount||0)<0?'-':'+'}${fmtC(t.amount)}</td></tr>`).join('');
+    // Sign shown must come from `action`, not the raw stored amount -- the delta-detection
+    // journal (the primary source once a position has been synced past its CSV bootstrap)
+    // always stores BOTH Buy and Sell amounts as positive; only `action` carries the real
+    // direction. Trusting amount's raw sign showed every journal-sourced Buy as a green inflow
+    // (confirmed 2026-08-13: LMT/SPB/PSTL buys rendered identically to the COP/R/RBCAA sells).
+    const cfHTML = cf.map(t => {
+      const isOutflow = t.action === 'Buy' || t.action === 'Reinvest Shares';
+      const amt = Math.abs(t.amount || 0);
+      return `<tr><td>${t.date}</td><td><b>${t.sym}</b></td><td>${t.action}</td>`
+        + `<td class=r>${t.qty?Number(t.qty).toFixed(4):'—'}</td>`
+        + `<td class="r ${isOutflow?'red':'green'}">${isOutflow?'-':'+'}${fmtC(amt)}</td></tr>`;
+    }).join('');
     const irrRate = tabStats[group].irrRate, spyRet = tabStats[group].spySimpleRet;
     const html = `<!DOCTYPE html><html><head><title>${cfg.label} Audit — ${asOf}</title><style>
       body{font-family:Arial,sans-serif;font-size:12px;color:#111;margin:24px}
