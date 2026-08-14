@@ -7959,10 +7959,15 @@ ${wfSVG}
       const gl = e.mktVal - (netInv || 0);
       totBuys += e.grossBuys || 0; totSell += e.sellProceeds || 0; totDrip += e.dripCost || 0; totDiv += e.divCash || 0;
       totNet += netInv || 0; totVal += e.mktVal; totGL += gl;
+      // fmtC() drops the sign (Math.abs) -- fine for columns that are never negative, but Net
+      // Invested legitimately goes negative for a closed position sold at a profit (grossBuys <
+      // sellProceeds = capital already returned, with extra). Displaying that as a bare positive
+      // dollar figure made it read as ADDED capital instead of a deduction -- prepend the minus
+      // explicitly so a negative Net Invested is visibly a credit, not a contribution.
       rowsHTML += `<tr><td><b>${e.sym}</b></td><td class=r>${(e.shares||0)}</td><td class=r>${fmtC(e.grossBuys)}</td>`
         + `<td class=r>${e.sellProceeds>0?fmtC(e.sellProceeds):'—'}</td><td class=r>${e.dripCost>0?fmtC(e.dripCost):'—'}</td>`
         + `<td class="r green">${e.divCash>0?'+'+fmtC(e.divCash):'—'}</td>`
-        + `<td class=r><b>${fmtC(netInv)}</b></td><td class=r>${fmtC(e.mktVal)}</td>`
+        + `<td class=r><b>${netInv<0?'-':''}${fmtC(netInv)}</b></td><td class=r>${fmtC(e.mktVal)}</td>`
         + `<td class="r ${gl>=0?'green':'red'}">${gl>=0?'+':'-'}${fmtC(gl)}</td>`
         + `<td class="r">${fmtP(e.irrPct)}</td><td class="r">${fmtP(e.simpleRet)}</td></tr>`;
     });
@@ -8005,7 +8010,7 @@ ${wfSVG}
         <th class=r>True IRR</th><th class=r>Simple Ret</th></tr></thead>
         <tbody>${rowsHTML}</tbody>
         <tfoot><tr><td>TOTAL (${entries.length})</td><td></td><td class=r>${fmtC(totBuys)}</td><td class=r>${fmtC(totSell)}</td>
-          <td class=r>${fmtC(totDrip)}</td><td class="r green">${totDiv>0?'+'+fmtC(totDiv):'—'}</td><td class=r>${fmtC(totNet)}</td><td class=r>${fmtC(totVal)}</td>
+          <td class=r>${fmtC(totDrip)}</td><td class="r green">${totDiv>0?'+'+fmtC(totDiv):'—'}</td><td class=r>${totNet<0?'-':''}${fmtC(totNet)}</td><td class=r>${fmtC(totVal)}</td>
           <td class="r ${totGL>=0?'green':'red'}">${totGL>=0?'+':'-'}${fmtC(totGL)}</td><td></td><td></td></tr></tfoot>
       </table>
       <h2>Cash-Flow Ledger (${cf.length} entries)</h2>
