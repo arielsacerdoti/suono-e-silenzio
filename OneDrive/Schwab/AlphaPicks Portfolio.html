@@ -9232,7 +9232,16 @@ ${soldRowsData.length ? `<table>
         // that reconciliation existed. Fall back to costBasis only when there's no trade
         // history to compute from at all (e.g. a position just opened).
         const costBasis = parseFloat(row.dataset.costBasis) || 0;
-        const usedCostBasis = netInvested > 0 ? netInvested : (costBasis > 0 ? costBasis : 0);
+        // The costBasis fallback only makes sense when there's a live remaining position to
+        // value -- Schwab's own costBasis for a fully-closed position (shares === 0) is always
+        // $0, so falling back to it whenever netInvested <= 0 silently zeroed out any position
+        // sold for MORE than it cost (a real, valid negative netInvested = net profit already
+        // taken). Confirmed 2026-08-13: COP sold for $4,316.72 against $4,040.21 in buys showed
+        // G/L $0.00 instead of the real +$276.51 gain. A closed position's netInvested (even
+        // negative) IS the real number; only synthesize from costBasis when shares are still held.
+        const usedCostBasis = shares > 0
+          ? (netInvested > 0 ? netInvested : (costBasis > 0 ? costBasis : 0))
+          : netInvested;
 
         // Terminal cash flow: current market value — use noon today (no hours drift vs Excel)
         const termDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0);
