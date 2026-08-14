@@ -1526,6 +1526,36 @@ return $null
         continue
     }
 
+    # ── /schwab_secrets.js (GET) — localhost only, never over LAN/Tailscale ───────
+    # The dashboard's <script src="schwab_secrets.js"> has had no route to serve it -- this file
+    # has never lived anywhere the HttpListener would answer for it, so every load via the server
+    # (i.e. every normal launch through the .bat, which opens http://localhost:7843/dashboard, not
+    # a file:// path) 404s here, GIST_TOKEN silently stays '', and syncToCloud's Gist push has
+    # therefore always been a no-op in practice -- confirmed 2026-08-14: the Gist was stuck on
+    # 2026-08-10 data (missing that day's LMT/SPB/PSTL QG&I tag fix) despite the LOCAL
+    # mobile_data.json being fully fresh, because local writes go through /save-mobile-data, a
+    # completely separate path that never depended on this token. Away-from-home mobile access
+    # (no LAN/Tailscale route to the desktop) has been silently serving stale data ever since.
+    # Localhost-only, same as /shutdown: this file holds a real (gist-scope) GitHub token.
+    if ($path -eq '/schwab_secrets.js' -and $meth -eq 'GET') {
+        if ($req.RemoteEndPoint.Address.ToString() -notin @('127.0.0.1', '::1')) {
+            Send-Text $res 'Forbidden' 403
+            continue
+        }
+        $secretsFile = Join-Path $scriptDir 'schwab_secrets.js'
+        if (Test-Path $secretsFile) {
+            $bytes = [IO.File]::ReadAllBytes($secretsFile)
+            $res.StatusCode  = 200
+            $res.ContentType = 'application/javascript; charset=utf-8'
+            $res.Headers.Add('Cache-Control', 'no-cache, no-store, must-revalidate')
+            $res.OutputStream.Write($bytes, 0, $bytes.Length)
+            $res.Close()
+        } else {
+            Send-Text $res '// schwab_secrets.js not found -- Gist push disabled' 200 'application/javascript'
+        }
+        continue
+    }
+
     # ── /log-xlsx (GET) — download the server-generated Excel log ────────────
     if ($path -eq '/log-xlsx') {
         if (Test-Path $LOG_XLSX_PATH) {
