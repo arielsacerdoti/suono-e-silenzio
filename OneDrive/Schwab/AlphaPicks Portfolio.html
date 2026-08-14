@@ -6997,9 +6997,13 @@
       tbody.appendChild(tr);
     });
 
-    tabStats[group].invested = totCost;
+    // Closed-position credit: see closedPosInvested declaration. Applied here too (not just in
+    // loadIRRData's post-hoc lightweight refresh) so a plain re-sync or tag toggle -- with no
+    // fresh IRR computation -- still reflects whatever was last computed, instead of momentarily
+    // reverting to a live-only total until the next loadIRRData run.
+    tabStats[group].invested = totCost + closedPosInvested[group];
     tabStats[group].value    = totVal;
-    tabStats[group].totalGL  = totGL;
+    tabStats[group].totalGL  = totGL - closedPosInvested[group];
     if (!tabStats[group].ready) tabStats[group].dailyGL = 0;
     tabStats[group].ready    = true;
 
@@ -7080,9 +7084,11 @@
     if (sTotVal || eTotVal) {
       renderTotBar(sTotCost, sTotVal, sTotGL, 'brok-stocks-totals');
       renderTotBar(eTotCost, eTotVal, eTotGL, 'brok-etfs-totals');
-      tabStats.brokerage.invested = sTotCost + eTotCost;
+      // Closed-position credit: see closedPosInvested declaration. Only the stat-card totals get
+      // it -- renderTotBar above (the per-table totals row) stays a literal sum of visible rows.
+      tabStats.brokerage.invested = sTotCost + eTotCost + closedPosInvested.brokerage;
       tabStats.brokerage.value    = sTotVal  + eTotVal;
-      tabStats.brokerage.totalGL  = sTotGL   + eTotGL;
+      tabStats.brokerage.totalGL  = sTotGL   + eTotGL   - closedPosInvested.brokerage;
       if (sHasDay || eHasDay) tabStats.brokerage.dailyGL = sDayGL + eDayGL;
       tabStats.brokerage.ready    = true;
       // Update weight cells for brokerage rows
@@ -7096,9 +7102,9 @@
     }
     if (iTotVal) {
       renderTotBar(iTotCost, iTotVal, iTotGL, 'ira-totals', 'Total G/L');
-      tabStats.ira.invested = iTotCost;
+      tabStats.ira.invested = iTotCost + closedPosInvested.ira;
       tabStats.ira.value    = iTotVal;
-      tabStats.ira.totalGL  = iTotGL;
+      tabStats.ira.totalGL  = iTotGL - closedPosInvested.ira;
       if (iHasDay) tabStats.ira.dailyGL = iDayGL;
       tabStats.ira.ready    = true;
       // Update weight cells for IRA rows
@@ -7366,6 +7372,11 @@
   let irrAuditData = []; // populated by loadIRRData, used by printIRRAudit
   let spyAuditData = {}; // populated by computeTabIRRStats, keyed by tabId
   let benchAuditData = {}; // secondary benchmark (VYM) for QG&I, same shape as spyAuditData
+  // Net-invested contribution from fully-closed positions (real journal history, no live shares
+  // left), per tab -- populated by loadIRRData from irrAuditData entries with shares===0. Read by
+  // renderGroupFromSchwab/refreshSectionStats so the live "Total Invested"/G-L stat cards match
+  // the audit ledger's pooled-cashflow methodology instead of only counting current holdings.
+  let closedPosInvested = { brokerage: 0, ira: 0, alphapicks: 0, qgi: 0 };
   let irrLoadInProgress = false;
 
   function printIRRAudit(section) {
@@ -8827,6 +8838,17 @@ ${soldRowsData.length ? `<table>
       });
     });
 
+    // NOTE: deliberately NOT extending this same "closed position" injection to plain
+    // Brokerage/IRA. Tried it (2026-08-13) and reverted -- unlike Alpha Picks/QG&I (a bounded,
+    // curated tag list where "closed" means "swapped for a replacement pick"), Brokerage/IRA have
+    // no membership boundary, so it pulled in the account's ENTIRE multi-year CSV-bootstrap
+    // history. Worse, CUSIP-format symbols (bond/T-bill identifiers, e.g. "912797PU5") collide
+    // with the pre-existing HGI-private-fund heuristic a few lines below (any symbol that isn't a
+    // normal 1-6-letter ticker gets routed into the HGI special path), which fetched and injected
+    // the REAL HGI fund's ~$230k cash flows once per phantom CUSIP row -- inflated Brokerage
+    // "closed" net invested by over $1.5M, IRA by ~$194k. Alpha Picks/QG&I are safe because their
+    // tagged members are always real equity tickers, which never hit that heuristic.
+
     // Add virtual rows for mock-sold symbols not currently in any tbody.
     // These represent fully sold Alpha Picks positions — terminal value = $0,
     // but their transaction history (buy + mock sell) still feeds the XIRR pool.
@@ -9460,6 +9482,39 @@ ${soldRowsData.length ? `<table>
     allLbls.forEach(l => l.textContent = `IRR loaded (${done} positions)`);
     // Persist fresh results — shown immediately on next session load
     if (irrCacheNew.length) localStorage.setItem('schwab_irr_cache', JSON.stringify(irrCacheNew));
+
+    // Closed positions (shares===0, injected above) net OUT of a tab's committed capital just
+    // like they do in the audit ledger -- a fully-closed position's cashInvested is already
+    // grossBuys-sellProceeds (negative when sold at a profit), and since its mktVal is always 0,
+    // that IS its whole G/L contribution too (mktVal - cashInvested = -cashInvested exactly).
+    closedPosInvested = { brokerage: 0, ira: 0, alphapicks: 0, qgi: 0 };
+    irrAuditData.forEach(e => {
+      if (e.shares > 0 || closedPosInvested[e.section] === undefined) return;
+      const netInv = e.cashInvested != null ? e.cashInvested : e.grossBuys;
+      closedPosInvested[e.section] += (netInv || 0);
+    });
+    // Alpha Picks/QG&I have no lightweight re-aggregator like refreshSectionStats (below) --
+    // renderGroupFromSchwab is the only thing that normally sets their .invested/.totalGL, but
+    // calling it here would rebuild the tbody from scratch and wipe the econCostBasis/dataset.cost
+    // corrections the per-row loop above just wrote onto the CURRENT rows. Re-sum from those
+    // existing rows instead (no DOM rebuild) so both the per-row economic-cost corrections AND
+    // the closed-position credit land in the live stat cards immediately.
+    ['alphapicks', 'qgi'].forEach(group => {
+      const cfg = GROUPS[group];
+      let totCost = 0, totVal = 0;
+      document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`).forEach(r => {
+        totCost += parseFloat(r.dataset.cost) || 0;
+        totVal  += parseFloat(r.dataset.mktVal) || 0;
+      });
+      if (!totVal) return; // no live positions yet -- leave whatever renderGroupFromSchwab last set
+      tabStats[group].invested = totCost + closedPosInvested[group];
+      tabStats[group].value    = totVal;
+      tabStats[group].totalGL  = totVal - tabStats[group].invested;
+    });
+    const _activeTabForStats = TAB_IDS.find(t => document.getElementById(`tab-${t}`)?.classList.contains('active'));
+    if (_activeTabForStats === 'alphapicks' || _activeTabForStats === 'qgi') renderTabStats(_activeTabForStats);
+    updateAllocTabStats(); renderTabStats('allocation');
+
     // Re-aggregate section totals and stats bar using economic basis (matching per-row G/L cells)
     refreshSectionStats();
     // Compute combined XIRR + SPY equivalent per tab — await so irrRate/spyIrrRate/spySimpleRet
