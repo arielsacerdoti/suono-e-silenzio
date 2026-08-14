@@ -2768,11 +2768,20 @@
       for (const key of _STORE_SYNC_KEYS) {
         if (!(key in data)) continue;
         const incoming = data[key];
-        const current  = localStorage.getItem(key);
-        if (incoming === current) continue;
+        // res.json() already parsed array/object values -- _origSetItem is the RAW
+        // localStorage.setItem, which coerces its 2nd arg via .toString(), not JSON.stringify.
+        // Passing the parsed object straight through corrupted e.g. qgi_tagged from a real
+        // JSON array into the comma-joined string "KIM,COP,...", which every getTagged('qgi')
+        // JSON.parse() call then throws on, silently falling back to the hardcoded seed list --
+        // confirmed 2026-08-13: any tag added past the seed (LMT/SPB/PSTL) disappeared again
+        // within 30s of every reload, because this poller re-corrupted it right after loadStore()
+        // had just set it correctly. Must always compare/write the STRING form, matching loadStore().
+        const incomingStr = incoming === null ? null : (typeof incoming === 'string' ? incoming : JSON.stringify(incoming));
+        const current = localStorage.getItem(key);
+        if (incomingStr === current) continue;
         // Value changed on another device — update locally
-        if (incoming === null) _origRemoveItem(key);
-        else _origSetItem(key, incoming);
+        if (incomingStr === null) _origRemoveItem(key);
+        else _origSetItem(key, incomingStr);
         if (key === 'alphapicks_tagged' || key === 'qgi_tagged' || key === 'group_alloc') taggedChanged = true;
       }
       // Re-render tabs if a tagged list / allocation changed
