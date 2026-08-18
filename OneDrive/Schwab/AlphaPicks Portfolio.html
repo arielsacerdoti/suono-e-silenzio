@@ -1649,10 +1649,17 @@
 
   // Check upcoming earnings calls across ALL position tables (Alpha Picks + Brokerage + IRA + QG&I).
   //
-  // PRIMARY source: FMP /stable/earnings-calendar (CORS-enabled, date-range query).
-  //   Yahoo earningsTimestamp is NOT used — it rolls forward to next quarter the moment
-  //   a company reports, so same-day checks always miss it.
-  // FALLBACK: Yahoo v7 earningsTimestamp (catches anything FMP might miss).
+  // Three-tier source chain, in order:
+  //   1. alphapicks_earnings_dates cache (populated by cacheEarningsDatesFromFMP during normal
+  //      price fetches — sticky within the alert window so FMP's next-quarter rollover can't
+  //      evict a same-day date before the alert fires).
+  //   2. FMP /stable/earnings-calendar (CORS-enabled, date-range query) for anything not cached.
+  //   3. Nasdaq's public calendar (api.nasdaq.com/api/calendar/earnings), via fetchJSON's
+  //      proxy chain, for anything FMP still missed — added 2026-08-18 after confirming BOTH
+  //      real Yahoo earnings-date sources are dead (v7 quote: auth-gated 429; v10 quoteSummary
+  //      calendarEvents: auth-gated 401 "Invalid Crumb"). This is a fallback, not primary,
+  //      since FMP's direct-fetch is more precise per-symbol; Nasdaq is date-scoped, so it's
+  //      only reached when a specific symbol is still unresolved.
   //
   // Alert window: 1 day before (-1), day-of (0), 1 day after (+1 catch-up).
   // Dedup key: alphapicks_earnings_notified → { [ticker_earnings_YYYY-MM-DD]: true }
@@ -1714,15 +1721,41 @@
       } catch(e) { console.warn('[Earnings] FMP calendar failed:', e.message); }
     }
 
-    // ── 3. Yahoo v7 fallback — REMOVED 2026-08-10 ──────────────────────────────
-    // query1.finance.yahoo.com/v7/finance/quote has required auth since 2026-07-27
-    // (same dead endpoint documented elsewhere in this file). Every attempt failed,
-    // but only after walking fetchJSON's full 3-proxy chain (up to 10s timeout each)
-    // across 4 sequential 20-symbol chunks for 61 tracked tickers -- up to ~120s of
-    // silent hang per call, blocking every toast behind it. Confirmed live: a manual
-    // checkEarningsAlerts() call was still unresolved 24s in. FMP earnings-calendar
-    // (step 2, fixed same day) is CORS-enabled and returns real data directly, so
-    // this fallback added latency without ever adding coverage.
+    // ── 3. Nasdaq earnings-calendar fallback for anything FMP still missed ─────
+    // Yahoo was tried here first (matching the price system's Yahoo-primary/FMP-backup
+    // pattern) and rejected 2026-08-18: query1 v7/finance/quote is the already-known-dead
+    // auth-gated endpoint, and its actual earnings-date source, v10/finance/quoteSummary
+    // (modules=calendarEvents), is ALSO auth-gated (401 "Invalid Crumb") -- confirmed live,
+    // not assumed. v8/finance/chart (the endpoint this file uses successfully for prices)
+    // has no earnings field at all. Nasdaq's public calendar (api.nasdaq.com/api/calendar/
+    // earnings?date=YYYY-MM-DD) needs no auth and returns real data, but has no CORS header
+    // for browser fetch -- confirmed via a direct Origin-header test -- so it's routed
+    // through fetchJSON's local-proxy-first chain like everything else CORS-blocked in this
+    // file. It's date-scoped (all reporters for one day), not per-symbol, so this is 3
+    // parallel requests total (yesterday/today/tomorrow) regardless of how many tickers are
+    // being checked -- not the old per-symbol chunking that caused the ~120s hang this
+    // replaces.
+    const stillMissing = needLive.filter(s => !earningsMap[s]);
+    if (stillMissing.length) {
+      try {
+        const days = [yesterday, today, tomorrow];
+        const results = await Promise.all(days.map(d =>
+          fetchJSON(`https://api.nasdaq.com/api/calendar/earnings?date=${fmt(d)}`, 8000)
+        ));
+        results.forEach((data, i) => {
+          const rows = data?.data?.rows;
+          if (!Array.isArray(rows)) return;
+          const dateStr = fmt(days[i]);
+          for (const row of rows) {
+            if (row.symbol && stillMissing.includes(row.symbol) && !earningsMap[row.symbol]) {
+              earningsMap[row.symbol] = dateStr;
+              console.log(`[Earnings] Nasdaq calendar hit: ${row.symbol} = ${dateStr}`);
+            }
+          }
+        });
+      } catch(e) { console.warn('[Earnings] Nasdaq calendar failed:', e.message); }
+    }
+
     console.log('[Earnings] final map:', earningsMap);
 
     // ── Evaluate window and fire toasts ───────────────────────────────────────
