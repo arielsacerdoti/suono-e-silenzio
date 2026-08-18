@@ -1651,8 +1651,9 @@
   //
   // Three-tier source chain, in order:
   //   1. alphapicks_earnings_dates cache (populated by cacheEarningsDatesFromFMP during normal
-  //      price fetches — sticky within the alert window so FMP's next-quarter rollover can't
-  //      evict a same-day date before the alert fires).
+  //      price fetches, AND by this function's own live lookups below — sticky within the
+  //      alert window so FMP's next-quarter rollover can't evict a same-day date before the
+  //      alert fires).
   //   2. FMP /stable/earnings-calendar (CORS-enabled, date-range query) for anything not cached.
   //   3. Nasdaq's public calendar (api.nasdaq.com/api/calendar/earnings), via fetchJSON's
   //      proxy chain, for anything FMP still missed — added 2026-08-18 after confirming BOTH
@@ -1660,6 +1661,21 @@
   //      calendarEvents: auth-gated 401 "Invalid Crumb"). This is a fallback, not primary,
   //      since FMP's direct-fetch is more precise per-symbol; Nasdaq is date-scoped, so it's
   //      only reached when a specific symbol is still unresolved.
+  //
+  // Live-lookup throttle (steps 2+3): this function runs on every price-refresh tick from TWO
+  // call sites, and neither step 2 nor step 3 used to write back to alphapicks_earnings_dates —
+  // so every single tick re-fetched live for nearly every tracked symbol, all day. Confirmed via
+  // the FMP account's own usage dashboard 2026-08-18: 984 calls to /stable/earnings-calendar in
+  // 24h (vs. 22 to /stable/quote and 26 to /stable/profile combined), ~236 succeeding before
+  // silently eating the entire 250/day plan limit and crowding out real price fetches — this is
+  // why the toast "has never fired" wasn't just a missing-date problem, it was a self-inflicted
+  // quota exhaustion the app had no visibility into (this call has no logFmpUsage() wrapper, so
+  // it's invisible to the "N/250" daily-usage toast too). Fix: steps 2+3 now run at most once
+  // per ET calendar day (flagKey below, claimed before awaiting like the other daily checks in
+  // this file), and any live-resolved date gets written into alphapicks_earnings_dates so later
+  // ticks the same day serve from cache (step 1) instead of re-fetching. Trade-off: a position
+  // added mid-day after the daily check already ran won't get a live lookup until the next day —
+  // acceptable against a ~1000x reduction in call volume.
   //
   // Alert window: 1 day before (-1), day-of (0), 1 day after (+1 catch-up).
   // Dedup key: alphapicks_earnings_notified → { [ticker_earnings_YYYY-MM-DD]: true }
@@ -1683,6 +1699,16 @@
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
     const tomorrow  = new Date(today); tomorrow.setDate(today.getDate() + 1);
 
+    // ET calendar day, matching the convention used by every other "once per day" flag in
+    // this file (fmp_daily_toast_date, fmp_quality_check_*_date) — avoids the flag resetting
+    // at the wrong wall-clock moment for a browser in a non-ET timezone.
+    const etDateKey = (() => {
+      const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
+    })();
+    const liveThrottleKey = 'alphapicks_earnings_live_check_date';
+    const liveCheckAlreadyDoneToday = localStorage.getItem(liveThrottleKey) === etDateKey;
+
     // Build a map { symbol → dateStr } from all sources, then evaluate the window once.
     const earningsMap = {};   // symbol → YYYY-MM-DD
 
@@ -1698,62 +1724,88 @@
       }
     }
 
-    // ── 2. FMP earnings-calendar for any symbol not already found in cache ─────
-    // "earning-calendar" (singular, no 's') 404s -- confirmed 2026-08-10. This function has
-    // been silently non-functional since it was written: the cache never had anything to draw
-    // on (nothing else populates alphapicks_earnings_dates from a genuinely reliable source),
-    // this call 404'd every time, and the Yahoo v7 fallback below is *also* dead (query1
-    // v7/finance/quote requires auth as of 2026-07-27, same break already known elsewhere in
-    // this file) -- so the toast has never fired once. Verified against FMP directly: the
-    // correctly-spelled endpoint returns real upcoming dates (NVDA 08-26, WMT 08-20, etc.).
-    const needLive = allSymbols.filter(s => !earningsMap[s]);
-    if (needLive.length) {
-      try {
-        const url = `https://financialmodelingprep.com/stable/earnings-calendar` +
-                    `?from=${fmt(yesterday)}&to=${fmt(tomorrow)}&apikey=${FMP_KEY}`;
-        const data = await fetch(url).then(r => r.json());
-        for (const ev of data ?? []) {
-          if (ev.symbol && ev.date && needLive.includes(ev.symbol)) {
-            earningsMap[ev.symbol] = ev.date;
-            console.log(`[Earnings] FMP calendar hit: ${ev.symbol} = ${ev.date}`);
-          }
-        }
-      } catch(e) { console.warn('[Earnings] FMP calendar failed:', e.message); }
-    }
+    // Anything resolved live below (steps 2+3) gets written into alphapicks_earnings_dates —
+    // separate from earningsMap's cache-hit entries above, which are already persisted.
+    const resolvedLive = {};
 
-    // ── 3. Nasdaq earnings-calendar fallback for anything FMP still missed ─────
-    // Yahoo was tried here first (matching the price system's Yahoo-primary/FMP-backup
-    // pattern) and rejected 2026-08-18: query1 v7/finance/quote is the already-known-dead
-    // auth-gated endpoint, and its actual earnings-date source, v10/finance/quoteSummary
-    // (modules=calendarEvents), is ALSO auth-gated (401 "Invalid Crumb") -- confirmed live,
-    // not assumed. v8/finance/chart (the endpoint this file uses successfully for prices)
-    // has no earnings field at all. Nasdaq's public calendar (api.nasdaq.com/api/calendar/
-    // earnings?date=YYYY-MM-DD) needs no auth and returns real data, but has no CORS header
-    // for browser fetch -- confirmed via a direct Origin-header test -- so it's routed
-    // through fetchJSON's local-proxy-first chain like everything else CORS-blocked in this
-    // file. It's date-scoped (all reporters for one day), not per-symbol, so this is 3
-    // parallel requests total (yesterday/today/tomorrow) regardless of how many tickers are
-    // being checked -- not the old per-symbol chunking that caused the ~120s hang this
-    // replaces.
-    const stillMissing = needLive.filter(s => !earningsMap[s]);
-    if (stillMissing.length) {
-      try {
-        const days = [yesterday, today, tomorrow];
-        const results = await Promise.all(days.map(d =>
-          fetchJSON(`https://api.nasdaq.com/api/calendar/earnings?date=${fmt(d)}`, 8000)
-        ));
-        results.forEach((data, i) => {
-          const rows = data?.data?.rows;
-          if (!Array.isArray(rows)) return;
-          const dateStr = fmt(days[i]);
-          for (const row of rows) {
-            if (row.symbol && stillMissing.includes(row.symbol) && !earningsMap[row.symbol]) {
-              earningsMap[row.symbol] = dateStr;
-              console.log(`[Earnings] Nasdaq calendar hit: ${row.symbol} = ${dateStr}`);
+    if (liveCheckAlreadyDoneToday) {
+      console.log('[Earnings] live lookup already ran today — serving from cache only');
+    } else {
+      localStorage.setItem(liveThrottleKey, etDateKey); // claim before awaiting — same race-safety as other daily checks
+
+      // ── 2. FMP earnings-calendar for any symbol not already found in cache ─────
+      // Verified against FMP directly: the correctly-spelled endpoint (plural "calendar",
+      // singular 404s — confirmed 2026-08-10) returns real upcoming dates.
+      const needLive = allSymbols.filter(s => !earningsMap[s]);
+      if (needLive.length) {
+        try {
+          const url = `https://financialmodelingprep.com/stable/earnings-calendar` +
+                      `?from=${fmt(yesterday)}&to=${fmt(tomorrow)}&apikey=${FMP_KEY}`;
+          const data = await fetch(url).then(r => r.json());
+          for (const ev of data ?? []) {
+            if (ev.symbol && ev.date && needLive.includes(ev.symbol)) {
+              earningsMap[ev.symbol] = ev.date;
+              resolvedLive[ev.symbol] = ev.date;
+              console.log(`[Earnings] FMP calendar hit: ${ev.symbol} = ${ev.date}`);
             }
           }
-        });
-      } catch(e) { console.warn('[Earnings] Nasdaq calendar failed:', e.message); }
+        } catch(e) { console.warn('[Earnings] FMP calendar failed:', e.message); }
+      }
+
+      // ── 3. Nasdaq earnings-calendar fallback for anything FMP still missed ─────
+      // Yahoo was tried here first (matching the price system's Yahoo-primary/FMP-backup
+      // pattern) and rejected 2026-08-18: query1 v7/finance/quote is the already-known-dead
+      // auth-gated endpoint, and its actual earnings-date source, v10/finance/quoteSummary
+      // (modules=calendarEvents), is ALSO auth-gated (401 "Invalid Crumb") -- confirmed live,
+      // not assumed. v8/finance/chart (the endpoint this file uses successfully for prices)
+      // has no earnings field at all. Nasdaq's public calendar (api.nasdaq.com/api/calendar/
+      // earnings?date=YYYY-MM-DD) needs no auth and returns real data, but has no CORS header
+      // for browser fetch -- confirmed via a direct Origin-header test -- so it's routed
+      // through fetchJSON's local-proxy-first chain like everything else CORS-blocked in this
+      // file. It's date-scoped (all reporters for one day), not per-symbol, so this is 3
+      // parallel requests total (yesterday/today/tomorrow) regardless of how many tickers are
+      // being checked -- not the old per-symbol chunking that caused the ~120s hang this
+      // replaces.
+      const stillMissing = needLive.filter(s => !earningsMap[s]);
+      if (stillMissing.length) {
+        try {
+          const days = [yesterday, today, tomorrow];
+          const results = await Promise.all(days.map(d =>
+            fetchJSON(`https://api.nasdaq.com/api/calendar/earnings?date=${fmt(d)}`, 8000)
+          ));
+          results.forEach((data, i) => {
+            const rows = data?.data?.rows;
+            if (!Array.isArray(rows)) return;
+            const dateStr = fmt(days[i]);
+            for (const row of rows) {
+              if (row.symbol && stillMissing.includes(row.symbol) && !earningsMap[row.symbol]) {
+                earningsMap[row.symbol] = dateStr;
+                resolvedLive[row.symbol] = dateStr;
+                console.log(`[Earnings] Nasdaq calendar hit: ${row.symbol} = ${dateStr}`);
+              }
+            }
+          });
+        } catch(e) { console.warn('[Earnings] Nasdaq calendar failed:', e.message); }
+      }
+
+      // Persist live-resolved dates so later ticks today (and cache-eligible days going
+      // forward) hit step 1 instead of re-running steps 2/3 — same sticky rule as
+      // cacheEarningsDatesFromFMP: don't evict a date still inside the alert window.
+      if (Object.keys(resolvedLive).length) {
+        try {
+          const cache = JSON.parse(localStorage.getItem('alphapicks_earnings_dates') || '{}');
+          let dirty = false;
+          for (const [sym, dateStr] of Object.entries(resolvedLive)) {
+            const existing = cache[sym];
+            if (existing) {
+              const existDiff = Math.round((new Date(existing) - today) / 86400000);
+              if (existDiff >= -1 && existDiff <= 1) continue; // sticky — keep the recent date
+            }
+            if (cache[sym] !== dateStr) { cache[sym] = dateStr; dirty = true; }
+          }
+          if (dirty) localStorage.setItem('alphapicks_earnings_dates', JSON.stringify(cache));
+        } catch(e) { console.warn('[Earnings] cache write failed:', e.message); }
+      }
     }
 
     console.log('[Earnings] final map:', earningsMap);
