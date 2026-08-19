@@ -611,6 +611,10 @@
           <span class="next-alloc-value spy-pct-box" style="color:#8b949e">—</span>
         </div>
         <div class="next-alloc-box">
+          <span class="next-alloc-label">Nasdaq</span>
+          <span class="next-alloc-value nasdaq-pct-box" style="color:#8b949e">—</span>
+        </div>
+        <div class="next-alloc-box">
           <span class="next-alloc-label">USD / ILS</span>
           <span class="next-alloc-value usdils-box" style="color:#8b949e">—</span>
         </div>
@@ -4591,6 +4595,101 @@
     setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%${label}`, pct >= 0 ? '#3fb950' : '#ff7b72');
   }
 
+  // Nasdaq header chip — identical structure to fetchSpyBox, just QQQ (Nasdaq-100 ETF) in place
+  // of SPY for REGULAR session, and NQ=F (Nasdaq-100 e-mini futures) in place of ES=F for
+  // PRE/POST/CLOSED. Kept as its own function rather than parameterizing fetchSpyBox so the two
+  // stay independently readable/debuggable, matching how this file treats other per-index chips.
+  async function fetchNasdaqBox() {
+    const els   = document.querySelectorAll('.nasdaq-pct-box');
+    const setEl = (t, c) => els.forEach(e => { e.textContent = t; e.style.color = c; });
+    const session = getSessionFromClock();
+
+    // ── REGULAR session: use QQQ live price (Schwab primary, Yahoo/FMP backup on a miss) ──
+    if (session === 'REGULAR') {
+      const swQuote = (await fetchSchwabQuotesBatched(['QQQ'])).QQQ;
+      if (swQuote?.regularMarketChangePercent != null) {
+        const pct = swQuote.regularMarketChangePercent;
+        setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
+        return;
+      }
+      const data = await fetchJSON(`https://query1.finance.yahoo.com/v8/finance/chart/QQQ?interval=1d&range=5d&formatted=false&_cb=${Date.now()}`);
+      const res  = data?.chart?.result?.[0];
+      const price = res?.meta?.regularMarketPrice;
+      const ts = res?.timestamp ?? [], cs = res?.indicators?.quote?.[0]?.close ?? [];
+      const cutoff = Date.now() - 4 * 3600 * 1000;
+      let prev = null;
+      for (let i = ts.length - 1; i >= 0; i--) { if (ts[i] * 1000 < cutoff && cs[i] != null) { prev = cs[i]; break; } }
+      if (price && prev) {
+        const pct = (price - prev) / prev * 100;
+        setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
+        return;
+      }
+      // FMP backup — Yahoo missed; still within REGULAR hours so FMP is allowed.
+      // Note: QQQ is not in FMP_COVERED_SYMBOLS (the plan's known-working whitelist), so this
+      // tier will likely 402 rather than succeed — left in for parity with fetchSpyBox and in
+      // case the plan's coverage changes; Schwab/Yahoo above should carry this in practice.
+      const fmpQ = await fetchFMPQuote('QQQ');
+      if (fmpQ?.price && fmpQ?.previousClose) {
+        const pct = (fmpQ.price - fmpQ.previousClose) / fmpQ.previousClose * 100;
+        setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`, pct >= 0 ? '#3fb950' : '#ff7b72');
+        logFmpUsage(['QQQ'], 'nasdaqbox-fallback');
+      }
+      return;
+    }
+
+    // ── PRE / POST / CLOSED: use NQ=F futures (trade ~24/7) ──────────────
+    const nqUrl = `https://query1.finance.yahoo.com/v8/finance/chart/NQ%3DF?interval=1m&range=5d&formatted=false&_cb=${Date.now()}`;
+    let nqData = null;
+    for (const proxyUrl of [
+      `${_STORE_BASE}/proxy?url=${encodeURIComponent(nqUrl)}`,
+      `/proxy?url=${encodeURIComponent(nqUrl)}`,
+    ]) {
+      try {
+        const r = await fetch(proxyUrl, { cache: 'no-store' });
+        if (r.ok) { nqData = await r.json(); break; }
+      } catch {}
+    }
+    if (!nqData) nqData = await fetchJSON(nqUrl);
+    if (!nqData) { setEl('—', '#8b949e'); return; }
+
+    const nqResult = nqData.chart?.result?.[0];
+    if (!nqResult) { setEl('—', '#8b949e'); return; }
+
+    const nqTimes  = nqResult.timestamp ?? [];
+    const nqCloses = nqResult.indicators?.quote?.[0]?.close ?? [];
+
+    // Live price: scan backwards for last non-null close
+    let futPrice = null;
+    for (let i = nqCloses.length - 1; i >= 0; i--) {
+      if (nqCloses[i] != null) { futPrice = nqCloses[i]; break; }
+    }
+    if (!futPrice) futPrice = nqResult.meta?.regularMarketPrice;
+    if (!futPrice) { setEl('—', '#8b949e'); return; }
+
+    // Previous CME settlement: scan backwards for a 1m candle in the
+    // 4:10–4:25 PM ET window that is at least 30 min in the past.
+    const thirtyMinAgo = Date.now() - 30 * 60 * 1000;
+    let prevSettle = null;
+    for (let i = nqTimes.length - 1; i >= 0; i--) {
+      const tsMs = nqTimes[i] * 1000;
+      if (tsMs > thirtyMinAgo)    continue;   // too recent — settlement not done yet
+      if (nqCloses[i] == null)    continue;
+      const etStr = new Date(tsMs).toLocaleString('en-US', { timeZone: 'America/New_York' });
+      const tp    = etStr.match(/(\d+):(\d+):\d+\s+(AM|PM)/);
+      if (!tp) continue;
+      let h = parseInt(tp[1]), m = parseInt(tp[2]);
+      if (tp[3] === 'PM' && h !== 12) h += 12;
+      if (tp[3] === 'AM' && h === 12) h = 0;
+      if (h === 16 && m >= 10 && m <= 25) { prevSettle = nqCloses[i]; break; }
+    }
+
+    if (!prevSettle) { setEl('—', '#8b949e'); return; }
+
+    const pct   = (futPrice - prevSettle) / prevSettle * 100;
+    const label = session === 'PRE' ? ' PRE' : session === 'POST' ? ' AH' : ' FUT';
+    setEl(`${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%${label}`, pct >= 0 ? '#3fb950' : '#ff7b72');
+  }
+
   async function fetchUsdIls() {
     const els = document.querySelectorAll('.usdils-box');
     const setEl = (t, c) => els.forEach(e => { e.textContent = t; e.style.color = c; });
@@ -4876,6 +4975,7 @@
     _tabLive.alphapicks = { state: _staleN > 0 ? 'warn' : 'ok', text: `Updated ${_upTime} · ${updatedCount}/${rows.length} live` };
     paintActiveTabStatus();
     const _spyDone = fetchSpyBox(); // D2: non-blocking — SPY chip updates async; mobile push chains on it below
+    fetchNasdaqBox(); // non-blocking, same as SPY — nothing downstream depends on it yet
     fetchUsdIls();
     checkBuyCallReminder();
     pricesLoadedToday = true;  // mark prices as fresh — checkDailyLog gates on this
@@ -5611,6 +5711,7 @@
 
   if (!restoreFromPriceCache()) fetchPrices();
   fetchSpyBox();    // independent of Schwab — load immediately
+  fetchNasdaqBox(); // independent of Schwab — load immediately
   fetchUsdIls();   // independent of Schwab — load immediately
   scheduleDailyLog();
   setInterval(checkDailyLog, 60 * 1000); // poll every minute as fallback
