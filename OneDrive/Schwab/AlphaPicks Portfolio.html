@@ -2599,6 +2599,9 @@
         spyChipText:  document.querySelector('.spy-pct-box')?.textContent?.trim() || null,
         spyChipColor: document.querySelector('.spy-pct-box')?.style.color         || null,
         spyChipLabel: document.getElementById('spy-chip-label')?.textContent?.trim() || null,
+        // Nasdaq header chip — same replicate-verbatim pattern as the S&P chip above.
+        nasdaqChipText:  document.querySelector('.nasdaq-pct-box')?.textContent?.trim() || null,
+        nasdaqChipColor: document.querySelector('.nasdaq-pct-box')?.style.color         || null,
       };
       const body = JSON.stringify(payload);
 
