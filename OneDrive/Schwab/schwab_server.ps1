@@ -52,7 +52,7 @@ $FMP_KEY_SERVER   = 'RifQbMNRIh92cgRC44u30scmkMK0l0gK'
 # next time a ticker is added via the Buy flow. Missed CNC (bought 2026-08-03) for several days --
 # the unattended /auto-log fallback would have undercounted Alpha Picks by ~$10k on any day it
 # ran for real in that window. When adding a new Alpha Pick, add it here too.
-$ALPHA_PICKS_SYMS = @('TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN','LITE','CSTM','NEXA','MXL','SNDK','SNEX','ICHR','BTSG','CRDO','CNC')
+$ALPHA_PICKS_SYMS = @('TTMI','MU','INCY','PARR','W','TIGO','B','NEM','DY','GM','FN','LITE','CSTM','NEXA','MXL','SNDK','SNEX','ICHR','BTSG','CRDO','CNC','BAC')
 # Mirror of INITIAL_TAGGED_QGI in AlphaPicks Portfolio.html. Needed so the unattended raw
 # fallback path (below) excludes QG&I's own holdings from the Brokerage bucket the same way it
 # already excludes Alpha Picks' -- without this, QG&I's real positions (same physical brokerage

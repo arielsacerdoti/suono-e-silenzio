@@ -1907,10 +1907,18 @@
         return sec;
       };
 
+      // usdils has no independent fetch/retry of its own here — it just reads whatever's
+      // currently in the header box. If that box hasn't finished loading yet at capture time
+      // (e.g. a manual/forced capture right after page load, or a transient fetchUsdIls()
+      // failure with no subsequent retry before this ran), it reads "—" and parseNum blanks it,
+      // permanently baking an empty rate into that day's entry. Fall back to the previous
+      // entry's rate rather than write nothing — confirmed 2026-08-20 after a manual capture
+      // logged an empty usdils for 2026-08-19.
+      const liveUsdIls = parseNum(document.querySelector('.usdils-box')?.textContent?.trim() || '');
       const entry = {
         date:       dateStr,
         _key:       dateKey,
-        usdils:     parseNum(document.querySelector('.usdils-box')?.textContent?.trim() || ''),
+        usdils:     liveUsdIls !== '' ? liveUsdIls : (prevLogEntry?.usdils ?? ''),
         brokerage:  captureTab('brokerage',  '#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol]'),
         ira:        captureTab('ira',         '#ira-tbody tr[data-symbol]'),
         alphapicks: captureTab('alphapicks',  '#picks-tbody tr[data-ticker]'),
