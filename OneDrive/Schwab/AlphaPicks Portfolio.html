@@ -5730,6 +5730,23 @@
   // then start the session scheduler.  Falls back to browser Intl timezone if IP call fails.
   detectTimezoneOffset().then(scheduleAutoRefresh);
 
+  // Browsers throttle or fully suspend setTimeout/setInterval on a backgrounded tab (and PC
+  // sleep stops JS entirely) -- so autoRefreshPollTimer, restoreFromPriceCache's own scheduled
+  // fetchPrices() call, etc. can all just silently not fire on time, with nothing re-checking
+  // once the tab is visible again. Confirmed 2026-08-20: Alpha Picks daily change was showing
+  // the exact frozen dailyGL value from the previous session (matched a stale log entry to the
+  // cent), hours after it should have refreshed. Re-check staleness on regaining visibility,
+  // using the same session-aware threshold restoreFromPriceCache() already uses.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    const session = getSessionFromClock();
+    const maxAge  = session === 'REGULAR' ? 3 * 60 * 1000 : session === 'CLOSED' ? 60 * 60 * 1000 : 10 * 60 * 1000;
+    if (!lastPricesFetchAt || Date.now() - lastPricesFetchAt > maxAge) {
+      console.log('[Visibility] tab regained focus with stale prices — refreshing');
+      fetchPrices();
+    }
+  });
+
   // ═══════════════════════════════════════════════════════════════
   // TAB NAVIGATION
   // ═══════════════════════════════════════════════════════════════
