@@ -268,13 +268,36 @@ This app maintains a running daily snapshot (`alphapicks_log`, one entry per tra
 
 ## MOB — Mobile App Data Sync
 
-*(Full detail lives in `alphapicks-mobile`'s own repo — this is a brief pointer since the desktop app is this data's origin.)*
+*(Full source lives in the SEPARATE `alphapicks-mobile` repo, `C:\Users\sacer\OneDrive\alphapicks-mobile\index.html` — not this file, not this repo. This section exists because mobile is not a pure display layer for desktop's numbers: parts of it are, parts are an independent re-implementation of desktop logic, and those two categories have already drifted apart at least once. Checked directly against the mobile source 2026-08-25 — not assumed.)*
+
+**The short version: mobile is a hybrid, field by field, not "the same calc" or "a different calc."** Three categories:
+
+**A. Pure pass-through — trusts desktop's number completely, no mobile-side math:**
+- `STAT-6`/`STAT-7` (S&P/VYM benchmark) — displayed directly from `data.*SpySimpleRet`/`*SpyIrrRate`/`*BenchIrrRate`. No local SPY/VYM simulation on mobile at all.
+- `ROW-2` (Net Invested / cost basis) and its `grossBuys` floor — received as `pos.costBasis`/`pos.grossBuys` from desktop's `loadIRRData()`, used as-is.
+- `LOG-*` (daily capture, Excel export) — **not applicable to mobile.** Logging and Excel export are desktop/server-only; mobile has no export function of any kind.
+
+**B. Locally recomputed, same formula as desktop, but fed mobile's own live inputs:**
+- `ROW-3` (G/L $/%) — mobile computes `gl = mktVal − cost`, `glPct = gl / max(grossBuys, cost) × 100` itself, live, using its own fetched price for `mktVal`. Formula matches desktop's `ROW-3` exactly (same grossBuys-floor fix, comment explicitly cites the desktop BSM/IRA "+1268%" incident) — but the `mktVal` feeding it depends on mobile's OWN price fetch, which is category C below.
+- `STAT-1`/`STAT-2` (Total Invested / Current Value) — mobile sums `pos.costBasis` (desktop-shipped, category A) and `pos.mktVal` (mobile's own live price × shares, category C) across positions in the payload.
+
+**C. Independent re-implementation — a separate copy of the code, not shared, and NOT kept in sync:**
+- **`ROW-1` (PRE/AH price + %) — confirmed 2026-08-25 to still be running the PRE-fix version of all three bugs documented in `ROW-1`.** Mobile has its own `patchPos()`/extended-hours-fetch functions, structurally a near-verbatim port of desktop's *old* code — same `isExtHours`-gated fallback (not `isExt`), same `ref = q.regularMarketPrice` with no `_freshRef`-equivalent priority, no `alphapicks_close_map` equivalent at all. None of commits `d2345e7`, `40276c4`, or `b4485e3` have been ported. **Practical implication: if a ticker shows a wrong PRE/AH % on mobile, do not assume it's fixed just because desktop is — check mobile's own code.**
+- **`STAT-3` (Daily Change)** — inherits directly from the above: mobile accumulates `Σ(mktVal × dayPct)` where `dayPct` comes from the same unfixed local pricing code. Same exposure as `ROW-1`.
+- **`STAT-5` (Annual Return / True IRR) — has its own separate bug, not shared with desktop, found while auditing this.** Mobile tries a "live" recompute first: pools `pos.flows` (desktop's reconciled per-position cash-flow series, shipped as-is) across whatever positions are in the current payload, appends ONE combined terminal using mobile's own live `mktVal` sum, and runs `calcXIRR()` — specifically so the rate reflects mobile's own fresher prices rather than the last desktop sync's frozen snapshot. Falls back to the desktop-shipped `tabIrrRate` only if this local computation produces nothing. **The problem:** `positions` here is desktop's `activePositions`/`qgiPositions` array, built from currently-*rendered* DOM rows only (`renderGroupFromSchwab()` never renders a closed position — see `QGI-1`). Mobile's local pool therefore silently excludes any fully-closed tagged position's cash-flow history, the exact thing `QGI-1` (commits `325cc14`/`e057d70`) fixed on desktop. A QG&I rotation like the LMT/SPB/PSTL swap would understate mobile's IRR the same way desktop's used to — desktop is correct, mobile regresses it, and this has nothing to do with sync freshness or the Gist.
 
 ### MOB-1 — `mobile_data.json` / GitHub Gist push
 
 **Formula:** `syncToCloud()` serializes live positions + `STAT-1`/`STAT-5`/`STAT-6` figures for all 4 tabs (plus QG&I's already-split positions, since mobile has no equivalent of `QGI-3`'s splitting logic) into one JSON payload, POSTed to the local server's `/save-mobile-data` (always) and, throttled to once per 5 minutes (or forced), PATCHed to a GitHub Gist for access when mobile can't reach the desktop server directly (`HOME_MODE = false`).
 
 **Gotcha (fixed commit `1681d3e`):** the Gist push requires `GIST_TOKEN`, loaded from `schwab_secrets.js` via a `<script>` tag — the server had no route to actually serve that file (404 on every real launch), so `GIST_TOKEN` silently stayed empty and the Gist push was a **permanent no-op** for at least 4+ days before this was caught. Local `mobile_data.json` stayed fresh throughout (separate write path, doesn't need the token) — which is exactly why this was invisible: check the Gist's own raw URL timestamp against local `mobile_data.json`'s timestamp if mobile ever looks stale away from home; if local is fresh but the Gist isn't, suspect `GIST_TOKEN` first.
+
+### MOB-2 — Not yet ported to mobile (as of 2026-08-25)
+
+Tracked here rather than silently forgotten. All three are in `ROW-1`'s category C above:
+1. `_freshRef`-priority reference chain for PRE/AH % (desktop commits `d2345e7`, `40276c4`, `b4485e3`).
+2. The `isExt`-vs-`isExtHours` fallback gating (a no-tick ticker on mobile still falls through to the raw provider's `regularMarketChangePercent`, same as SPB did on desktop).
+3. Closed-position inclusion in mobile's local IRR recompute (new finding, no desktop equivalent to port — this needs its own fix: either ship `flows` for closed positions too in `syncToCloud()`'s payload, or have mobile prefer the desktop-shipped `tabIrrRate` when any closed position exists for that tab).
 
 ---
 
