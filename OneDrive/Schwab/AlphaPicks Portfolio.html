@@ -7892,11 +7892,10 @@ ${body}</body></html>`;
     renderMockTxnList();
   }
 
-  // ── Alpha Picks Ledger Report ─────────────────────────────────────────────
+  // ── Ledger Report (Alpha Picks / QG&I — dividend-history-aware cash-flow ledger) ──────────
 
-  async function printLedgerReport(group) {
-    // QG&I: its cash-flow ledger + IRR live in the group audit (dividend-history ledger is Alpha Picks-only for now)
-    if (group && group !== 'alphapicks') { printGroupAudit(group); return; }
+  async function printLedgerReport(group = 'alphapicks') {
+    const cfg = GROUPS[group] || GROUPS.alphapicks;
     const asOf     = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric', hour:'2-digit', minute:'2-digit' });
     const todayIso = new Date().toISOString().split('T')[0];
     const fmtD     = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
@@ -7905,13 +7904,13 @@ ${body}</body></html>`;
 
     // Show a loading window immediately so the user knows it's working
     const w = window.open('', '_blank');
-    w.document.write('<html><body style="font-family:Arial;padding:32px;color:#333"><h2>Building ledger…</h2><p>Fetching dividend history for all positions.</p></body></html>');
+    w.document.write(`<html><body style="font-family:Arial;padding:32px;color:#333"><h2>Building ledger…</h2><p>Fetching dividend history for all ${cfg.label} positions.</p></body></html>`);
     w.document.close();
 
     // ── Base cash flows (buys & sells) ──────────────────────────────────────
     const cashFlows = []; // { date, ticker, description, amount, type }
 
-    const activeRows = Array.from(document.querySelectorAll('#picks-tbody tr[data-ticker]'));
+    const activeRows = Array.from(document.querySelectorAll(`#${cfg.tbody} tr[data-ticker]`));
     const currentShares = {}; // sym → current share count
     activeRows.forEach(row => {
       const cost   = parseFloat(row.dataset.originalCost ?? row.dataset.cost);
@@ -7923,7 +7922,10 @@ ${body}</body></html>`;
       if (date && cost > 0) cashFlows.push({ date, ticker: sym, description: `Buy — ${shares} sh @ ${fmtC(pps)}`, amount: -cost, type: 'buy' });
     });
 
-    const salesData = JSON.parse(localStorage.getItem('alphapicks_sales') || '[]');
+    // group === 'alphapicks' → 'alphapicks_sales'; group === 'qgi' → 'qgi_sales'. The qgi_sales
+    // key is currently a declared-but-never-written placeholder (see CALC_REFERENCE.md AP-2) --
+    // reads as [] harmlessly today, and starts working automatically if that ever gets wired up.
+    const salesData = JSON.parse(localStorage.getItem(`${group}_sales`) || '[]');
     salesData.forEach(s => {
       if (s.purchaseCost && s.purchaseDate) {
         const pps = s.shares > 0 ? s.purchaseCost / s.shares : 0;
@@ -7936,13 +7938,43 @@ ${body}</body></html>`;
     });
 
     const journal = JSON.parse(localStorage.getItem('schwab_tx_journal') || '[]');
-    const tagged  = JSON.parse(localStorage.getItem('alphapicks_tagged') || '[]');
+    const tagged  = getTagged(group);
     const salesKeys = new Set(salesData.map(s => s.ticker + '|' + s.date));
+    // Journal action casing: detectPositionDeltas() (the only real ongoing writer) always
+    // capitalizes ('Buy'/'Sell'/'Reinvest Shares'); only very old CSV-bootstrap rows may be
+    // lowercase. Match both -- sharesAtDate() below already does, this filter previously didn't
+    // (checked only 'sell', silently matching none of the real delta-journal's 'Sell' entries).
+    // Harmless gap for Alpha Picks (alphapicks_sales already covers most real sells explicitly),
+    // but QG&I has no such explicit record (qgi_sales is unwired, see above) -- for QG&I this
+    // journal scan is the ONLY way a sell ever appears in this ledger at all, so it must actually
+    // match.
     journal.forEach(j => {
       if (!tagged.includes(j.symbol)) return;
-      if (j.action !== 'sell') return;
+      if ((j.action || '').toLowerCase() !== 'sell') return;
       if (salesKeys.has(j.symbol + '|' + j.date)) return;
       cashFlows.push({ date: j.date, ticker: j.symbol, description: `Sell — ${j.qty} sh (journal)`, amount: +(j.amount || 0), type: 'sell' });
+    });
+
+    // Closed positions: a tagged symbol with no current row and no purchaseCost/purchaseDate in
+    // salesData (the group-sold-record path above) still needs its ORIGINAL buy(s) in the ledger,
+    // or its journal-detected sell above shows up looking like free money. Mirrors the same
+    // journal-based reconstruction loadIRRData()'s QGI-1 virtual rows use, kept simple here since
+    // this ledger just needs raw buy flows, not a full IRR/economic-basis recompute.
+    //
+    // Checks csvTxns too, not just journal -- confirmed 2026-08-25 on RBCAA: its original buy
+    // (2026-07-22) is a one-time CSV-bootstrap row, not an ongoing delta-journal entry (only its
+    // eventual sell went through detectPositionDeltas). journal-only would show the real sell
+    // with no matching buy, i.e. free money, for any position old enough to predate the journal.
+    const csvTxns = JSON.parse(localStorage.getItem('schwab_csv_txns') || '[]');
+    const closedSyms = tagged.filter(sym => !(sym in currentShares) && !salesData.some(s => s.ticker === sym));
+    closedSyms.forEach(sym => {
+      [...csvTxns, ...journal]
+        .filter(j => j.symbol === sym && ['buy', 'reinvest shares'].includes((j.action || '').toLowerCase()))
+        .forEach(j => {
+          const shares = parseFloat(j.qty) || 0;
+          const cost   = Math.abs(j.amount || 0);
+          if (cost > 0) cashFlows.push({ date: j.date, ticker: sym, description: `Buy — ${shares} sh @ ${fmtC(shares > 0 ? cost / shares : 0)} (${j.source === 'delta' ? 'journal' : 'CSV'})`, amount: -cost, type: 'buy' });
+        });
     });
 
     // ── Reconstruct historical share counts from journal ─────────────────────
@@ -7953,8 +7985,14 @@ ${body}</body></html>`;
       for (const j of sorted) {
         if (j.date <= iso) break;
         const q = parseFloat(j.qty) || 0;
-        if (j.action === 'buy' || j.action === 'Buy' || j.action === 'Reinvest Shares') sh -= q;
-        else if (j.action === 'sell') sh += q;
+        const act = (j.action || '').toLowerCase();
+        // 'sell' matched only lowercase before -- detectPositionDeltas() (the only ongoing
+        // writer) always capitalizes ('Sell'), so a real sell after `iso` was silently never
+        // undone here, understating historical share counts for any position with a real sell
+        // in its history. Harmless for a position that's never had one; corrupts dividend
+        // totals for any that has -- including every closed position this ledger now covers.
+        if (act === 'buy' || act === 'reinvest shares') sh -= q;
+        else if (act === 'sell') sh += q;
       }
       return Math.max(sh, 0);
     }
@@ -7962,7 +8000,7 @@ ${body}</body></html>`;
     // ── Fetch dividend history from Yahoo for each starred ticker ────────────
     const divRows = []; // { date, ticker, description, amount, type: 'drip'|'div-reinvested'|'div-cash' }
 
-    const divFetches = tagged.map(async sym => {
+    const fetchDivsFor = async sym => {
       try {
         const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1mo&range=5y&events=dividends`;
         const data = await fetchJSON(url);
@@ -8008,9 +8046,14 @@ ${body}</body></html>`;
           divRows.push({ date: useDate, ticker: sym, description: desc, amount: totalDiv, type });
         }
       } catch (_) {}
-    });
+    };
 
-    await Promise.all(divFetches);
+    // Batched 6-at-a-time, same concurrency limit used everywhere else in this file for Yahoo
+    // calls -- fine for Alpha Picks' ~20 tickers unbounded, but QG&I's ~30 tagged symbols firing
+    // all at once risked overloading the single-threaded local proxy.
+    for (let i = 0; i < tagged.length; i += 6) {
+      await Promise.all(tagged.slice(i, i + 6).map(fetchDivsFor));
+    }
     divRows.sort((a, b) => a.date.localeCompare(b.date));
 
     // ── Merge: dividend inflows offset cost basis for reinvested divs ────────
@@ -8131,7 +8174,7 @@ ${body}</body></html>`;
     // ── Final HTML ────────────────────────────────────────────────────────────
     const html = `<!DOCTYPE html><html><head>
 <meta charset="utf-8">
-<title>Alpha Picks Ledger — ${asOf}</title>
+<title>${cfg.label} Ledger — ${asOf}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 12px; color: #111; margin: 32px; }
   h1   { font-size: 18px; margin-bottom: 2px; }
@@ -8172,8 +8215,8 @@ ${body}</body></html>`;
 </style>
 </head><body>
 
-<h1>Alpha Picks — Cash Flow Ledger</h1>
-<div class="sub">Generated: ${asOf} &nbsp;·&nbsp; ${activeRows.length} open position${activeRows.length!==1?'s':''} &nbsp;·&nbsp; ${salesData.length} sold position${salesData.length!==1?'s':''} &nbsp;·&nbsp; ${divRows.length} dividend event${divRows.length!==1?'s':''}</div>
+<h1>${cfg.label} — Cash Flow Ledger</h1>
+<div class="sub">Generated: ${asOf} &nbsp;·&nbsp; ${activeRows.length} open position${activeRows.length!==1?'s':''} &nbsp;·&nbsp; ${salesData.length + closedSyms.length} sold position${(salesData.length + closedSyms.length)!==1?'s':''} &nbsp;·&nbsp; ${divRows.length} dividend event${divRows.length!==1?'s':''}</div>
 
 <h2>Summary</h2>
 ${wfSVG}
