@@ -13,7 +13,8 @@
 - **SESS** — session / market-state detection (foundational, everything below depends on this)
 - **STAT** — per-tab stat bar (Total Invested, Current Value, Daily Change, Annual Return, etc.)
 - **ROW** — position table row columns (Current Price, Cash Invested, G/L, True IRR, etc.)
-- **QGI** — QG&I-specific mechanics (closed-position pooling, VYM benchmark, shared-ticker splitting)
+- **QGI** — group-tag mechanics shared by Alpha Picks + QG&I (closed-position pooling, shared-ticker splitting), plus the one genuinely QG&I-only ledger bug — see the section intro for which is which
+- **AP** — Alpha Picks-specific mechanics (its own dedicated ledger/audit path, dividend-history capability QG&I lacks, sold-position tracking)
 - **LOG** — daily log capture and Excel export (both the server-side `.xlsx` writer and the client-side one)
 - **MOB** — mobile app data sync
 - **ALLOC** — Allocation tab
@@ -172,11 +173,13 @@ dayPct = isExt && ref ? (price − ref) / ref × 100 : regularMarketChangePercen
 
 ---
 
-## QGI — QG&I-Specific Mechanics
+## QGI — Group-Tag Mechanics (kept the "QGI" ID prefix, but read the scope line on each entry)
 
-QG&I and Alpha Picks share the same rendering/calc engine (`GROUPS` config, `renderGroupFromSchwab()`, `refreshGroupPrices()`), parametrized by group. These entries cover behavior specific to that shared "tagged group" architecture, most visible on QG&I because it has by far the most tagging/rotation activity.
+**Naming note, added after a fair question: only ONE of these three entries is actually QG&I-only.** QG&I and Alpha Picks share the same rendering/calc engine (`GROUPS` config, `renderGroupFromSchwab()`, `refreshGroupPrices()`), parametrized by group — `QGI-1` and `QGI-3` are properties of that *shared* engine and apply to Alpha Picks identically, they just got discovered/fixed via QG&I incidents because QG&I has far more tagging/rotation activity. `QGI-2` is the one genuinely QG&I-specific entry, and for a real structural reason spelled out in its own entry: Alpha Picks' "📒 Ledger" button does **not** go through the code `QGI-2` describes at all — it runs an entirely separate, Alpha-Picks-only function (see `AP-1`) that builds its cash-flow list with explicit signs from the start, so the bug `QGI-2` describes was never reachable from that path. IDs are kept as originally assigned (`QGI-1`/`QGI-2`/`QGI-3`) per this doc's own "IDs never get renumbered" rule — treat the `QGI` prefix as historical, not as a scope claim.
 
 ### QGI-1 — Closed (fully-sold) tagged positions still count toward the tab
+
+**Scope: shared engine, applies to Alpha Picks identically.** `loadIRRData()`'s injection loop runs `['alphapicks', 'qgi'].forEach(group => ...)` — literally the same code, same conditions, for both tabs. Discovered via QG&I's LMT/SPB/PSTL rotation only because Alpha Picks hasn't had a fully-closed tagged position in its own recent history to surface it.
 
 **Formula:** any symbol still in `qgi_tagged`/`alphapicks_tagged` with real `schwab_tx_journal`/`schwab_csv_txns` history but **no current Schwab position** gets a virtual row injected (terminal value `$0`) into `loadIRRData()`'s processing, so its real buy/sell dates and amounts feed `STAT-1` and `STAT-5`'s pooled calculations exactly like a live position would.
 
@@ -190,15 +193,39 @@ QG&I and Alpha Picks share the same rendering/calc engine (`GROUPS` config, `ren
 
 ### QGI-2 — Ledger Cash-Flow sign (Buy vs. Sell)
 
+**Scope: genuinely QG&I-only, and here's specifically why.** This bug lives in `printGroupAudit()`, the function QG&I's "📒 Ledger" button calls. Alpha Picks' own "📒 Ledger" button does not call this function at all — `printLedgerReport()` special-cases `group === 'alphapicks'` right at the top and routes to `printAlphaPicksAudit()`/its own cash-flow construction instead (see `AP-1`), which builds each flow with an explicit `amount: -cost` / `amount: proceeds` sign at construction time — there's no raw-`amount`-vs-`action` ambiguity to have a bug in. Brokerage/IRA never call `printGroupAudit()` either (no group-tag concept), so this really is QG&I-exclusive, not just QG&I-discovered.
+
 **Formula:** the printed ledger colors/signs each row by `action` (`Buy`/`Reinvest Shares` → red outflow, else → green inflow) — **not** by the raw stored `amount`'s sign.
 
 **Gotcha (fixed commit `cee8f76`):** the delta-detection journal (`detectPositionDeltas()`, the primary transaction source once a position is past its CSV bootstrap) stores **both** Buy and Sell `amount` as positive numbers — only `action` carries the real direction. CSV-bootstrap-sourced entries happen to store `amount` already negative for buys, so the same ledger table could show two different sign conventions side by side depending on which source produced the row, before this was normalized.
 
 ### QGI-3 — Shared-ticker splitting (e.g. "B" held in both Alpha Picks and QG&I)
 
+**Scope: shared engine, symmetric between both groups.** `sliceForGroup()` doesn't know or care which caller is "QG&I" — it just resolves whichever group didn't get an explicit `group_alloc` slice as "the remainder." Filed under `QGI` because the one real overlap example in this portfolio (ticker "B") happens to involve QG&I, not because the mechanism favors it.
+
 **Formula:** `sliceForGroup(symbol, group, totalShares, totalCost)` — if a symbol is tagged into more than one group, the position's shares/cost are split via `group_alloc` (localStorage), which stores each group's explicit share/cost slice once the overlap was created. The group *without* an explicit slice owns "the remainder after the other groups' slices," so shares/cost are never double-counted across tabs.
 
 **Source:** `group_alloc` localStorage key; consumed by `renderGroupFromSchwab()` and, for cash-flow attribution specifically, `attributeGroupTxns()` inside `loadIRRData()`.
+
+---
+
+## AP — Alpha Picks-Specific Mechanics
+
+Alpha Picks is one of the two groups in `GROUPS` (see `QGI` above for what it shares with QG&I), but it also has its own code paths that QG&I does not — this section is those, added the same day as `QGI` after a fair question about why only QG&I had a section: Alpha Picks did have its own gaps, they just weren't written down yet.
+
+### AP-1 — Dedicated ledger/audit path (`printLedgerReport()` → `printAlphaPicksAudit()`)
+
+**What it is:** Alpha Picks' "📒 Ledger" and "Print Audit" buttons do **not** run through `printGroupAudit()` (`QGI-2`'s function) — they run `printLedgerReport()` (no `group` arg defaults it to `'alphapicks'` and short-circuits before reaching `printGroupAudit`) and `printAlphaPicksAudit()`, two Alpha-Picks-only functions with their own independent cash-flow construction, built with explicit signs (`amount: -cost` for a buy, `amount: proceeds` for a sell) directly from position rows and `alphapicks_sales` — never from the ambiguous-sign journal `QGI-2` describes.
+
+**Extra capability QG&I doesn't have:** `printLedgerReport()`'s ledger additionally fetches and includes real **dividend history** per position (the loading window explicitly says "Fetching dividend history for all positions"). QG&I's ledger (`printGroupAudit`) has no equivalent — its own code comment says so directly: *"QG&I: its cash-flow ledger + IRR live in the group audit (dividend-history ledger is Alpha Picks-only for now)."* This is a real feature gap, not a bug — QG&I's income-heavy holdings arguably want this more than Alpha Picks does, it just hasn't been built for that tab yet.
+
+**Source:** `printLedgerReport()` and `printAlphaPicksAudit()`.
+
+### AP-2 — Sold-position tracking (`alphapicks_sold`/`alphapicks_sold_rows`/`alphapicks_sales`)
+
+**What it is:** Alpha Picks has its own dedicated localStorage-backed sold-position bookkeeping (separate from `QGI-1`'s virtual-row mechanism, which reconstructs closed positions from the journal on the fly rather than storing them explicitly). `alphapicks_sales` cash flows feed `AP-1`'s ledger directly, and `alphapicks_sold`/`alphapicks_sold_rows` back the "Sold Positions" table in `AP-1`'s audit printout.
+
+**QG&I's version of this is a wired-up placeholder, not a missing feature — worth knowing if you ever go looking for it.** `_STORE_SYNC_KEYS` declares `qgi_sold`/`qgi_sales` right alongside the Alpha Picks keys, cross-device-synced the same way — but nothing in the codebase ever calls `localStorage.setItem`/`getItem` on either key. They're a placeholder that was never wired up, not a used-but-undocumented mechanism. A fully-closed QG&I position today is reconstructed *only* via `QGI-1`'s journal-based virtual rows — if that reconstruction is ever wrong or incomplete for one, there's no separate explicit record to fall back on or cross-check against, unlike Alpha Picks which has both the journal and this store.
 
 ---
 
