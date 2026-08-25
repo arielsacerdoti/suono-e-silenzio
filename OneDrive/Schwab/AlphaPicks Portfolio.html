@@ -2051,9 +2051,9 @@
   // ── One-time log migration: recompute dailyChange as (currentValue_today − currentValue_prev).
   // This is simple, reliable, and immune to bad totalChange values in any historical entry.
   // It slightly overstates on days where new capital was added, but that's rare and acceptable.
-  // Runs once per browser (guarded by 'alphapicks_log_dc_migrated' === '3' in localStorage).
+  // Runs once per browser (guarded by 'alphapicks_log_dc_migrated' === '5' in localStorage).
   function migrateLogDailyChanges() {
-    if (localStorage.getItem('alphapicks_log_dc_migrated') === '4') return 0;
+    if (localStorage.getItem('alphapicks_log_dc_migrated') === '5') return 0;
 
     const MON_MAP = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
                      Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
@@ -2078,7 +2078,7 @@
     };
 
     const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
-    if (raw.length < 2) { localStorage.setItem('alphapicks_log_dc_migrated', '4'); return 0; }
+    if (raw.length < 2) { localStorage.setItem('alphapicks_log_dc_migrated', '5'); return 0; }
 
     const sorted = [...raw].sort((a, b) => getKey(a) < getKey(b) ? -1 : 1);
     let changed = 0;
@@ -2087,7 +2087,11 @@
       const prev = sorted[i - 1];
       const curr = sorted[i];
 
-      for (const tabId of ['alphapicks', 'brokerage', 'ira']) {
+      // 'qgi' was never included here -- its backfilled entries (backfillGroupHistory) never
+      // set a dailyChange field at all (only a live same-day capture does), so every backfilled
+      // QG&I day was permanently stuck blank. Confirmed 2026-08-25: 23 of 24 QG&I log rows had
+      // no Daily Change, only the single most-recently-live-captured day did.
+      for (const tabId of ['alphapicks', 'brokerage', 'ira', 'qgi']) {
         const prevCV = getCV(prev, tabId);
         const currCV = getCV(curr, tabId);
         if (prevCV == null || currCV == null || prevCV <= 0) continue;
@@ -2105,7 +2109,7 @@
 
     sorted.sort((a, b) => getKey(a) > getKey(b) ? -1 : 1);
     localStorage.setItem('alphapicks_log', JSON.stringify(sorted));
-    localStorage.setItem('alphapicks_log_dc_migrated', '4');
+    localStorage.setItem('alphapicks_log_dc_migrated', '5');
     console.log(`[LogMigration] dailyChange recomputed for ${changed} tab-entries`);
     return changed;
   }
