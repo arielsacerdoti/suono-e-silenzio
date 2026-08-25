@@ -1526,6 +1526,89 @@ return $null
         continue
     }
 
+    # ── /calc-reference.md (GET) — raw source of the calculation reference doc ────
+    # Never cached, same reasoning as Send-Html: this gets edited whenever a new fragility bug
+    # is found, and a stale cached copy defeats the whole point of it being a live reference.
+    if ($path -eq '/calc-reference.md') {
+        $refFile = Join-Path $scriptDir 'CALC_REFERENCE.md'
+        if (Test-Path $refFile) {
+            $bytes = [IO.File]::ReadAllBytes($refFile)
+            $res.StatusCode  = 200
+            $res.ContentType = 'text/plain; charset=utf-8'
+            $res.Headers.Add('Cache-Control', 'no-cache, no-store, must-revalidate')
+            $res.OutputStream.Write($bytes, 0, $bytes.Length)
+            $res.Close()
+        } else {
+            Send-Text $res '# CALC_REFERENCE.md not found' 404
+        }
+        continue
+    }
+
+    # ── /calc-reference (GET) — rendered view of the calc reference doc ───────────
+    # Renders CALC_REFERENCE.md client-side via marked.js (same CDN-script pattern the dashboard
+    # already uses for SheetJS), styled to match the dashboard's own dark theme so it reads as
+    # part of the same app rather than a bare markdown dump.
+    if ($path -eq '/calc-reference') {
+        $html = @'
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Calculation Reference</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    max-width: 900px; margin: 0 auto; padding: 2rem 2.5rem 5rem; line-height: 1.6;
+  }
+  h1 { font-size: 1.6rem; border-bottom: 1px solid #30363d; padding-bottom: .6rem; }
+  h2 { font-size: 1.25rem; margin-top: 2.5rem; border-bottom: 1px solid #21262d; padding-bottom: .4rem; color: #58a6ff; }
+  h3 { font-size: 1.05rem; margin-top: 1.8rem; color: #e6edf3; background: #161b22; padding: .5rem .8rem; border-radius: 6px; border-left: 3px solid #58a6ff; }
+  h3 code { background: none; color: #79c0ff; }
+  p, li { color: #c9d1d9; }
+  strong { color: #e6edf3; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: #161b22; color: #79c0ff; padding: .1rem .35rem; border-radius: 4px; font-size: .88em; }
+  pre { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; overflow-x: auto; }
+  pre code { background: none; padding: 0; color: #c9d1d9; }
+  hr { border: none; border-top: 1px solid #21262d; margin: 2rem 0; }
+  ul { padding-left: 1.4rem; }
+  blockquote { border-left: 3px solid #30363d; margin-left: 0; padding-left: 1rem; color: #8b949e; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .topbar button {
+    background: transparent; border: 1px solid #30363d; border-radius: 6px; padding: 5px 12px;
+    color: #8b949e; font-size: .8rem; cursor: pointer;
+  }
+  .topbar button:hover { color: #e6edf3; border-color: #58a6ff; }
+  #err { color: #ff7b72; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <button onclick="window.close()">&larr; Close</button>
+  <button onclick="location.reload()">&#8635; Reload</button>
+</div>
+<div id="content">Loading&hellip;</div>
+<script>
+  fetch('/calc-reference.md', { cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+    .then(md => { document.getElementById('content').innerHTML = marked.parse(md); })
+    .catch(e => { document.getElementById('content').innerHTML = '<p id="err">Failed to load CALC_REFERENCE.md: ' + e.message + '</p>'; });
+</script>
+</body>
+</html>
+'@
+        $res.StatusCode  = 200
+        $res.ContentType = 'text/html; charset=utf-8'
+        $res.Headers.Add('Cache-Control', 'no-cache, no-store, must-revalidate')
+        $bytes = [Text.Encoding]::UTF8.GetBytes($html)
+        $res.OutputStream.Write($bytes, 0, $bytes.Length)
+        $res.Close()
+        continue
+    }
+
     # ── /schwab_secrets.js (GET) — localhost only, never over LAN/Tailscale ───────
     # The dashboard's <script src="schwab_secrets.js"> has had no route to serve it -- this file
     # has never lived anywhere the HttpListener would answer for it, so every load via the server

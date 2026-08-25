@@ -44,6 +44,7 @@
 !/OneDrive/Schwab/AlphaPicks Mobile.html
 !/OneDrive/Schwab/AlphaPicks Portfolio.html
 !/OneDrive/Schwab/schwab_server.ps1
+!/OneDrive/Schwab/CALC_REFERENCE.md
 
 # Deliberately NOT allowed through, and each for a reason:
 #   schwab_tokens.json / schwab_config.json  live brokerage OAuth credentials
