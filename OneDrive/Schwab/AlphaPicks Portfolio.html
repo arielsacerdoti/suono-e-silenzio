@@ -3308,7 +3308,14 @@
       if (!entry) { entry = { _key: dk, date: fmtDate(dk) }; log.push(entry); byKey.set(dk, entry); added++; }
       entry[group] = section;
     });
-    log.sort((a, b) => (a._key || '').localeCompare(b._key || ''));
+    // Sort ascending only to make the forEach above walk chronologically, then flip back to
+    // descending (newest-first) before saving -- every other reader of alphapicks_log assumes
+    // that order (captureLogEntry's unshift, exportLog's fullLog[0] "today" lookup, etc.).
+    // Saving it ascending here silently flipped the WHOLE shared log's order for every tab, not
+    // just this group's backfilled days -- confirmed 2026-08-25: exportLog logged "12-Sep-2023"
+    // as the current entry, and this was the only code path that wrote alphapicks_log without
+    // re-reversing to descending first.
+    log.sort((a, b) => (a._key || '').localeCompare(b._key || '')).reverse();
     localStorage.setItem('alphapicks_log', JSON.stringify(log));
     console.log(`[Backfill][${group}] from ${startDate}: ${added} new day(s), cost $${Math.round(costBasis)}`);
   }
