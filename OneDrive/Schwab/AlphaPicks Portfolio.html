@@ -5116,6 +5116,10 @@
               if (session === 'PRE' && ext.chartPreviousClose) {
                 quoteMap[t].regularMarketPrice = ext.chartPreviousClose;
               }
+              // fetchExtendedHours() computes this fetch's own "yesterday's close" freshly every
+              // cycle (candle-scanned for PRE, meta.chartPreviousClose for POST) -- see the ref
+              // priority below for why this now wins over the persisted closeMap cache.
+              quoteMap[t]._freshRef = ext.chartPreviousClose ?? null;
             }
           });
       }
@@ -5146,7 +5150,14 @@
       const cls = gain >= 0 ? 'gain' : 'loss';
       const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
       const logClose = q.isPre ? (closeMap[t] ?? null) : null;
-      const ref = logClose ?? (q.postMarketPrice != null ? (q.regularMarketPreviousClose ?? q.regularMarketPrice) : q.regularMarketPrice);
+      // _freshRef (this fetch cycle's own candle-scanned/chartPreviousClose reference, see
+      // fetchExtendedHours) takes priority over the persisted closeMap cache and over
+      // regularMarketPreviousClose -- both of those can go stale or point further back than
+      // intended (confirmed 2026-08-25: LMT's cached close was ~2 weeks old; SPB's
+      // regularMarketPreviousClose pointed 2 sessions back, showing yesterday's ALREADY-REALIZED
+      // gain as if it were a live pre-market move when SPB in fact had not traded at all yet
+      // tonight). A freshly-computed-every-cycle reference can't go stale the way a cache can.
+      const ref = q._freshRef ?? logClose ?? (q.postMarketPrice != null ? (q.regularMarketPreviousClose ?? q.regularMarketPrice) : q.regularMarketPrice);
       const dayChange = isExtHours && ref ? price - ref : q.regularMarketChange;
       const dayPct = isExtHours && ref ? (price - ref) / ref * 100 : logClose ? (price - logClose) / logClose * 100 : q.regularMarketChangePercent;
       const dayPctHtml = dayPct != null ? `<span class="${dayPct >= 0 ? 'gain' : 'loss'}" style="font-size:0.75rem;">${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%</span>` : '';
