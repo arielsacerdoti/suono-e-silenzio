@@ -2048,13 +2048,20 @@
     });
   }
 
-  // ── One-time log migration: recompute dailyChange as (currentValue_today − currentValue_prev).
+  // ── Repair pass: fill gaps in dailyChange as (currentValue_today − currentValue_prev).
   // This is simple, reliable, and immune to bad totalChange values in any historical entry.
   // It slightly overstates on days where new capital was added, but that's rare and acceptable.
-  // Runs once per browser (guarded by 'alphapicks_log_dc_migrated' === '5' in localStorage).
+  //
+  // Runs EVERY load, not once -- this used to be a one-shot migration gated by
+  // 'alphapicks_log_dc_migrated' === '5' in localStorage, but that guard made it permanently
+  // inert the instant it ran once, even if it hadn't actually fixed anything (or something later
+  // reverted the fix). Confirmed 2026-08-25: the QG&I gap was fixed server-side, then silently
+  // reverted the moment the browser's own (still-guard-satisfied, still-blank) copy got exported
+  // and pushed back up -- the guard being '5' already meant this function could never re-run to
+  // catch it. Now idempotent instead: only ever fills entries that are still genuinely blank (see
+  // the skip-if-already-set check below), so a normal load is a cheap no-op once the log is
+  // actually clean, and it self-heals if anything reintroduces a gap.
   function migrateLogDailyChanges() {
-    if (localStorage.getItem('alphapicks_log_dc_migrated') === '5') return 0;
-
     const MON_MAP = {Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
                      Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'};
     const getKey = e => {
@@ -2078,20 +2085,28 @@
     };
 
     const raw = JSON.parse(localStorage.getItem('alphapicks_log') || '[]');
-    if (raw.length < 2) { localStorage.setItem('alphapicks_log_dc_migrated', '5'); return 0; }
+    if (raw.length < 2) return 0;
 
     const sorted = [...raw].sort((a, b) => getKey(a) < getKey(b) ? -1 : 1);
     let changed = 0;
+
+    // Returns the CURRENT dailyChange already on an entry (or null/'' if genuinely blank),
+    // so a real live-captured value is never clobbered by this cruder close-to-close estimate.
+    const existingDC = (curr, tabId) => tabId === 'alphapicks'
+      ? (curr.alphapicks ? curr.alphapicks.dailyChange : curr.dailyChange)
+      : curr[tabId]?.dailyChange;
 
     for (let i = 1; i < sorted.length; i++) {
       const prev = sorted[i - 1];
       const curr = sorted[i];
 
-      // 'qgi' was never included here -- its backfilled entries (backfillGroupHistory) never
-      // set a dailyChange field at all (only a live same-day capture does), so every backfilled
-      // QG&I day was permanently stuck blank. Confirmed 2026-08-25: 23 of 24 QG&I log rows had
-      // no Daily Change, only the single most-recently-live-captured day did.
+      // 'qgi' was missing from this list for a long time -- its backfilled entries
+      // (backfillGroupHistory) never set a dailyChange field at all (only a live same-day
+      // capture does), so every backfilled QG&I day was stuck blank until this covered it too.
       for (const tabId of ['alphapicks', 'brokerage', 'ira', 'qgi']) {
+        const existing = existingDC(curr, tabId);
+        if (existing != null && existing !== '') continue; // already has a real value -- leave it
+
         const prevCV = getCV(prev, tabId);
         const currCV = getCV(curr, tabId);
         if (prevCV == null || currCV == null || prevCV <= 0) continue;
@@ -2107,10 +2122,11 @@
       }
     }
 
-    sorted.sort((a, b) => getKey(a) > getKey(b) ? -1 : 1);
-    localStorage.setItem('alphapicks_log', JSON.stringify(sorted));
-    localStorage.setItem('alphapicks_log_dc_migrated', '5');
-    console.log(`[LogMigration] dailyChange recomputed for ${changed} tab-entries`);
+    if (changed > 0) {
+      sorted.sort((a, b) => getKey(a) > getKey(b) ? -1 : 1);
+      localStorage.setItem('alphapicks_log', JSON.stringify(sorted));
+      console.log(`[LogMigration] dailyChange filled for ${changed} tab-entries`);
+    }
     return changed;
   }
 
@@ -4050,21 +4066,31 @@
 
   syncRows();
 
-  // One-time migration: recompute historical dailyChange values in the log.
-  // Runs silently on first load; fires a toast only if entries were actually updated.
-  try {
-    const _dcFixed = migrateLogDailyChanges();
-    if (_dcFixed > 0) {
-      const _c = document.getElementById('div-toasts');
-      const _t = document.createElement('div');
-      _t.className = 'div-toast log';
-      _t.innerHTML = `<span class="div-toast-icon">🔧</span>` +
-        `<span class="div-toast-body"><strong>Log history fixed</strong> — Daily Change recomputed for ${_dcFixed} entries. ` +
-        `<a href="#" onclick="exportLog();return false;" style="color:#79c0ff;text-decoration:underline">Re-export Excel</a></span>` +
-        `<button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
-      _c.appendChild(_t);
-    }
-  } catch(_e) { console.warn('[LogMigration] failed:', _e); }
+  // Repair pass for historical dailyChange gaps -- runs every load (cheap no-op once clean,
+  // self-heals if a gap is ever reintroduced). Fires a toast only if entries were actually filled.
+  // MUST wait for _storeReady first: loadStore() unconditionally overwrites alphapicks_log from
+  // the server on every load, so running this migration synchronously (as it used to) raced that
+  // fetch -- it would "fix" the stale pre-load localStorage snapshot, then loadStore() would
+  // resolve moments later and silently clobber the fix with the server's still-broken copy.
+  // Confirmed 2026-08-25: this is why the QG&I Daily Change gap kept coming back even after a
+  // hard refresh -- the repair ran, then got overwritten before the page finished loading, every
+  // single time, invisibly.
+  (async () => {
+    try {
+      await window._storeReady;
+      const _dcFixed = migrateLogDailyChanges();
+      if (_dcFixed > 0) {
+        const _c = document.getElementById('div-toasts');
+        const _t = document.createElement('div');
+        _t.className = 'div-toast log';
+        _t.innerHTML = `<span class="div-toast-icon">🔧</span>` +
+          `<span class="div-toast-body"><strong>Log history fixed</strong> — Daily Change recomputed for ${_dcFixed} entries. ` +
+          `<a href="#" onclick="exportLog();return false;" style="color:#79c0ff;text-decoration:underline">Re-export Excel</a></span>` +
+          `<button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+        _c.appendChild(_t);
+      }
+    } catch(_e) { console.warn('[LogMigration] failed:', _e); }
+  })();
 
   // Render the intraday strip with any cached data from localStorage (instant, no network needed)
   setTimeout(() => { try { renderIntradayChart(activeTabId()); } catch(_) {} }, 0);
