@@ -5123,6 +5123,9 @@
 
     let totVal = 0, totDay = 0, hasDay = false, updated = 0;
     let closeMap = {}; try { closeMap = JSON.parse(localStorage.getItem('alphapicks_close_map') || '{}'); } catch (_) {}
+    // Captured during REGULAR/POST so the NEXT PRE session has an accurate reference -- see the
+    // persist block below for why this was missing entirely for group (Alpha Picks/QG&I) rows.
+    const freshCloseMap = {};
     rowsG.forEach(row => {
       const t = row.dataset.ticker;
       const shares = parseFloat(row.dataset.shares);
@@ -5134,6 +5137,7 @@
                   : q.regularMarketPrice;
       if (!price) { const lv = parseFloat(row.dataset.mktVal); if (!isNaN(lv)) totVal += lv; return; }
       updated++;
+      if (session !== 'PRE' && q.regularMarketPrice != null) freshCloseMap[t] = q.regularMarketPrice;
       const priceTag = q.isPre && q.preMarketPrice != null ? 'PRE' : q.postMarketPrice != null ? 'AH' : null;
       const value = shares * price, gain = value - cost;
       const glBasis = parseFloat(row.dataset.econGrossBuys) || cost;
@@ -5153,6 +5157,26 @@
       row.dataset.price = price; row.dataset.value = value; row.dataset.mktVal = value; row.dataset.dayPct = (dayPct != null ? dayPct : '');
       if (dayChange != null) { totDay += dayChange * shares; hasDay = true; }
     });
+
+    // Persist to alphapicks_close_map so the next PRE session has an accurate reference. This
+    // group-shared engine (Alpha Picks + QG&I) only ever READ this cache (line ~5125) and never
+    // wrote to it -- only fetchPrices() (Alpha Picks' legacy path) and refreshBrokeragePrices()
+    // (Brokerage/IRA) did. A QG&I-only ticker therefore either had NO cached entry (harmless --
+    // falls back to Yahoo's own regularMarketPrice-during-PRE quirk, which is usually close
+    // enough) or, worse, an entry that was ONE-TIME-seeded and then frozen forever: LMT/SPB/PSTL
+    // briefly sat in the plain Brokerage tab right after purchase (before being tagged into QG&I),
+    // so refreshBrokeragePrices() cached a close price from that moment and QG&I's own refresh
+    // cycle never touched it again. Confirmed 2026-08-25: LMT showed "PRE -6.10%" against a stale
+    // cached close of $598.01 from ~2 weeks earlier, while the real prior close was $563.57 and
+    // LMT was actually UP in pre-market -- Yahoo/Google showed no such loss because there wasn't
+    // one.
+    if (session !== 'PRE' && Object.keys(freshCloseMap).length) {
+      try {
+        const stored = JSON.parse(localStorage.getItem('alphapicks_close_map') || '{}');
+        Object.assign(stored, freshCloseMap);
+        localStorage.setItem('alphapicks_close_map', JSON.stringify(stored));
+      } catch (_) {}
+    }
 
     tabStats[group].value   = totVal;
     tabStats[group].totalGL = totVal - tabStats[group].invested;
