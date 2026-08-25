@@ -5149,7 +5149,17 @@
       totVal += value;
       const cls = gain >= 0 ? 'gain' : 'loss';
       const isExtHours = (q.isPre && q.preMarketPrice != null) || (q.postMarketPrice != null);
-      const logClose = q.isPre ? (closeMap[t] ?? null) : null;
+      // Gated on isExt (any non-REGULAR session), not isExtHours (a confirmed real tick) --
+      // a ticker with NO genuine extended-hours print at all (SPB, confirmed 2026-08-25: Schwab's
+      // extended block was empty AND the Yahoo fallback had nothing either) falls through to
+      // `price = q.regularMarketPrice`, but used to ALSO fall through the reference logic below
+      // to q.regularMarketChangePercent -- the raw provider's own regular-session % change, which
+      // is exactly as unreliable outside REGULAR hours as regularMarketPreviousClose (see the
+      // _freshRef comment). SPB showed "+1.65%" this way with literally zero real pre-market
+      // trading. Using isExt here means a no-real-tick ticker prices itself against the same
+      // careful reference chain (correctly landing near/at 0% when nothing has actually moved)
+      // instead of trusting a field that can be a session behind.
+      const logClose = isExt ? (closeMap[t] ?? null) : null;
       // _freshRef (this fetch cycle's own candle-scanned/chartPreviousClose reference, see
       // fetchExtendedHours) takes priority over the persisted closeMap cache and over
       // regularMarketPreviousClose -- both of those can go stale or point further back than
@@ -5158,8 +5168,8 @@
       // gain as if it were a live pre-market move when SPB in fact had not traded at all yet
       // tonight). A freshly-computed-every-cycle reference can't go stale the way a cache can.
       const ref = q._freshRef ?? logClose ?? (q.postMarketPrice != null ? (q.regularMarketPreviousClose ?? q.regularMarketPrice) : q.regularMarketPrice);
-      const dayChange = isExtHours && ref ? price - ref : q.regularMarketChange;
-      const dayPct = isExtHours && ref ? (price - ref) / ref * 100 : logClose ? (price - logClose) / logClose * 100 : q.regularMarketChangePercent;
+      const dayChange = isExt && ref ? price - ref : q.regularMarketChange;
+      const dayPct = isExt && ref ? (price - ref) / ref * 100 : q.regularMarketChangePercent;
       const dayPctHtml = dayPct != null ? `<span class="${dayPct >= 0 ? 'gain' : 'loss'}" style="font-size:0.75rem;">${dayPct >= 0 ? '+' : ''}${dayPct.toFixed(2)}%</span>` : '';
       const pc = row.querySelector('.cur-price');
       if (pc) pc.innerHTML = `$${fmtPrice(price)}${priceTag ? `<span class="market-label">${priceTag}</span>` : ''}` + (dayPctHtml ? `<br>${dayPctHtml}` : '');
