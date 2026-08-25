@@ -2624,6 +2624,15 @@
         qgiSpySimpleRet:        tabStats.qgi.spySimpleRet        ?? null,
         qgiBenchIrrRate:        tabStats.qgi.benchIrrRate        ?? null,
         qgiBenchSimpleRet:      tabStats.qgi.benchSimpleRet      ?? null,
+        // Whether this tab has any fully-closed tagged position (real trade history, no live
+        // shares left -- see loadIRRData's virtual-row injection, QGI-1). Mobile's own "live"
+        // IRR recompute only ever pools flows from currently-held positions in activePositions/
+        // qgiPositions above (closed ones have no row to build a position object from), so it
+        // would silently regress the closed-position fix by excluding their history. This flag
+        // tells mobile to defer to the already-correct rate above instead of recomputing locally
+        // whenever it's true (2026-08-25).
+        alphaPicksHasClosedPositions: irrAuditData.some(e => e.section === 'alphapicks' && e.shares === 0),
+        qgiHasClosedPositions:        irrAuditData.some(e => e.section === 'qgi'        && e.shares === 0),
         // S&P header chip — replicated verbatim on mobile
         spyChipText:  document.querySelector('.spy-pct-box')?.textContent?.trim() || null,
         spyChipColor: document.querySelector('.spy-pct-box')?.style.color         || null,

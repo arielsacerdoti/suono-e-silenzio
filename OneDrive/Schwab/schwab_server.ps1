@@ -932,6 +932,7 @@ return $null
                                   'alphaPicksIrrRate','alphaPicksSpyIrrRate','alphaPicksSpySimpleRet',
                                   'qgiIrrRate','qgiSpyIrrRate','qgiSpySimpleRet',
                                   'qgiBenchIrrRate','qgiBenchSimpleRet',
+                                  'alphaPicksHasClosedPositions','qgiHasClosedPositions',
                                   'spyChipText','spyChipColor','spyChipLabel')) {
                     $val = $prevMobileData.$k
                     if ($null -ne $val) { $payload2[$k] = $val }
