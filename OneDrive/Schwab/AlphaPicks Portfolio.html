@@ -9644,13 +9644,19 @@ ${soldRowsData.length ? `<table>
           }
         }
 
-        // ── QG&I: fold CASH dividends into the return (income sleeve) ──────────────
+        // ── Fold CASH dividends into the return (income sleeve) ────────────────────
         // Reinvested (DRIP) dividends are already captured via terminal value (the extra
         // shares), so only pay-out dividends with NO matching reinvestment are added, as
         // positive flows on their pay date. The shared B ticker splits automatically because
         // this row's `shares` is already the group's allocated slice (107.5231 for QG&I's B).
+        // Was QG&I-only ("income sleeve" for its income-focused holdings); a manually-
+        // rebought cash dividend on Alpha Picks (MU/NEM/GM/TIGO/B pay real dividends, none
+        // of them DRIP-flagged) was worse than just missing the income -- the dividend itself
+        // never counted as an inflow, but the manual re-buy funded by that cash still counted
+        // as a real outflow, so True IRR was punished for capital that was never actually
+        // outside money. Fixed 2026-08-25: applies to both tagged groups now.
         let divCash = 0;
-        if (row.dataset.group === 'qgi' && shares > 0 && row.dataset.date && xirrPairs.length > 0) {
+        if ((row.dataset.group === 'qgi' || row.dataset.group === 'alphapicks') && shares > 0 && row.dataset.date && xirrPairs.length > 0) {
           try {
             const divHist = await getDivHistoryCached(sym);
             const buyIso  = row.dataset.date;
