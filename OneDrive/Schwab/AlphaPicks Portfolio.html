@@ -1704,15 +1704,20 @@
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
     const tomorrow  = new Date(today); tomorrow.setDate(today.getDate() + 1);
 
-    // ET calendar day, matching the convention used by every other "once per day" flag in
-    // this file (fmp_daily_toast_date, fmp_quality_check_*_date) — avoids the flag resetting
-    // at the wrong wall-clock moment for a browser in a non-ET timezone.
-    const etDateKey = (() => {
-      const et = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      return `${et.getFullYear()}-${String(et.getMonth() + 1).padStart(2, '0')}-${String(et.getDate()).padStart(2, '0')}`;
-    })();
-    const liveThrottleKey = 'alphapicks_earnings_live_check_date';
-    const liveCheckAlreadyDoneToday = localStorage.getItem(liveThrottleKey) === etDateKey;
+    // Cooldown (not once-per-day) — was a once-per-ET-calendar-day flag, but that gave the
+    // live lookup exactly one shot: if it ran while a source was down (FMP 429) or before a
+    // same-day report was ingested yet (confirmed 2026-08-26: Nasdaq's calendar API is a live
+    // feed that fills in through the morning — DY was missing from it early, present a few
+    // minutes later with no code change on our end), any symbol still unresolved after that
+    // one attempt silently never got retried for the rest of the day, even though
+    // checkEarningsAlerts() itself keeps running every refresh cycle (5 min during market
+    // hours). A short cooldown lets STILL-UNRESOLVED symbols (resolved ones already skip
+    // straight to the cache hit above and never reach this block) get retried a few times
+    // across the day instead of exactly once, without hitting FMP/Nasdaq on every 5-min tick.
+    const liveThrottleKey = 'alphapicks_earnings_live_check_ts';
+    const LIVE_CHECK_COOLDOWN_MS = 20 * 60 * 1000; // 20 min
+    const lastLiveCheckTs = parseInt(localStorage.getItem(liveThrottleKey) || '0', 10);
+    const liveCheckAlreadyDoneToday = (Date.now() - lastLiveCheckTs) < LIVE_CHECK_COOLDOWN_MS;
 
     // Build a map { symbol → dateStr } from all sources, then evaluate the window once.
     const earningsMap = {};   // symbol → YYYY-MM-DD
@@ -1734,9 +1739,9 @@
     const resolvedLive = {};
 
     if (liveCheckAlreadyDoneToday) {
-      console.log('[Earnings] live lookup already ran today — serving from cache only');
+      console.log(`[Earnings] live lookup on cooldown (${Math.round((LIVE_CHECK_COOLDOWN_MS - (Date.now() - lastLiveCheckTs)) / 60000)} min left) — serving from cache only`);
     } else {
-      localStorage.setItem(liveThrottleKey, etDateKey); // claim before awaiting — same race-safety as other daily checks
+      localStorage.setItem(liveThrottleKey, String(Date.now())); // claim before awaiting — same race-safety as other daily checks
 
       // ── 2. FMP earnings-calendar for any symbol not already found in cache ─────
       // Verified against FMP directly: the correctly-spelled endpoint (plural "calendar",
