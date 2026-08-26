@@ -13,9 +13,10 @@
 - **SESS** — session / market-state detection (foundational, everything below depends on this)
 - **STAT** — per-tab stat bar (Total Invested, Current Value, Daily Change, Annual Return, etc.)
 - **ROW** — position table row columns (Current Price, Cash Invested, G/L, True IRR, etc.)
-- **QGI** — group-tag mechanics shared by Alpha Picks + QG&I (closed-position pooling, shared-ticker splitting), plus the one genuinely QG&I-only ledger bug — see the section intro for which is which
-- **AP** — Alpha Picks-specific mechanics (its own dedicated ledger/audit path, dividend-history capability QG&I lacks, sold-position tracking)
+- **QGI** — group-tag mechanics shared by Alpha Picks + QG&I (closed-position pooling, shared-ticker splitting, cash-dividend fold-in), plus the one genuinely QG&I-only ledger bug — see the section intro for which is which
+- **AP** — Alpha Picks-specific mechanics (its own dedicated audit path, sold-position tracking, and the dividend-history ledger both groups now share)
 - **LOG** — daily log capture and Excel export (both the server-side `.xlsx` writer and the client-side one)
+- **TOAST** — in-page alert/notification toasts (dividend, earnings, cash, FMP-quota, price-source, buy-call reminder)
 - **MOB** — mobile app data sync
 - **ALLOC** — Allocation tab
 
@@ -302,6 +303,66 @@ This app maintains a running daily snapshot (`alphapicks_log`, one entry per tra
 **Formula:** read directly off the page's `.usdils-box` DOM element at capture time (`LOG-1`) — this is the SAME rate shown in the header chip, itself fetched via the forex-specific Yahoo path (skips FMP entirely, uses `USDILS=X` 1-minute chart, `meta.chartPreviousClose` as reference).
 
 **Source:** `captureLogEntry()` for real captures; a live standalone fetch for `LOG-2`'s unattended path (fixed commit `afbf0ae` — previously always null, see `LOG-2`).
+
+---
+
+## TOAST — In-Page Alert & Notification Messages
+
+All rendered as dismissible cards in the `#div-toasts` container (`.div-toast` class). Per the project's own rule (see `CLAUDE.md`): these are in-page only, NOT the browser Notification API — they only ever appear while this page is open, never as an OS-level notification, and never survive a reload if not re-fired.
+
+### TOAST-1 — Dividend alerts (ex-div / pay date)
+
+**Scope: opt-in per ticker, Alpha Picks + QG&I only.** Configured via each row's bell icon (`alphapicks_div_alerts`: enabled flag + independent `exDivDays`/`payDays` lead time per ticker). `checkDivAlerts()` runs on every price refresh, scoped by `alertEligibleRows()` — Brokerage/IRA have no bell UI and are never checked.
+
+**Formula:** date source priority is a live fetch (`fetchDivData()`, Yahoo's `exDividendDate`/`dividendDate` fields directly — never `estimateNextDiv()`, per this project's own hard rule) first, falling back to whatever date was saved at alert-setup time if the live fetch has nothing.
+
+**Dedup:** `alphapicks_notified`, keyed `${ticker}_ex_${date}` / `${ticker}_pay_${date}`.
+
+**Source:** `showDivToast()`, `checkDivAlerts()`.
+
+### TOAST-2 — Earnings alerts (all tabs, automatic)
+
+**Scope: automatic for every ticker across all four tabs** (Brokerage/IRA/Alpha Picks/QG&I) — no opt-in, unlike `TOAST-1`.
+
+**Formula:** three-tier source chain — (1) `alphapicks_earnings_dates` cache, sticky within the ±1-day alert window so a rollover to "next quarter" can't evict a same-day date before the alert fires; (2) FMP `/stable/earnings-calendar`; (3) Nasdaq's public calendar as a last resort (both real Yahoo earnings-date sources are confirmed dead: v7 quote is auth-gated, v10 quoteSummary `calendarEvents` is auth-gated too). Alert window: -1/0/+1 days. **Dedup:** `alphapicks_earnings_notified`, keyed `${ticker}_earnings_${date}`.
+
+**Fixed 2026-08-18 — quota self-exhaustion:** originally ran the live FMP/Nasdaq lookup on every refresh tick with no result caching, silently burning FMP's entire 250-call/day quota (`TOAST-4`) on this one endpoint alone — confirmed 984 calls in 24h from FMP's own usage dashboard, ~236 succeeding before eating the whole plan and crowding out real price fetches, invisible because this call had no `logFmpUsage()` wrapper. Fixed by throttling the live-lookup step to at most once per day.
+
+**Fixed again 2026-08-26 — the once-per-day fix was too blunt:** exactly one shot per day meant any symbol still unresolved after that single attempt stayed unresolved for the rest of the day, even though `checkEarningsAlerts()` itself keeps re-running every 5 minutes during market hours. This missed DY's real earnings toast: the one daily attempt happened to run while FMP was returning `429 Limit Reach` AND before Nasdaq's calendar had ingested DY's release yet — confirmed live that Nasdaq's calendar is an intraday-updating feed, not a static daily snapshot (32 rows/no DY, then 48 rows/DY present, minutes apart, no code change in between). Fixed by converting the once-per-day flag into a 20-minute cooldown timestamp — already-resolved symbols are untouched (they hit the cache short-circuit before ever reaching the throttled block), only still-missing symbols get retried through the day.
+
+**Source:** `showEarningsToast()`, `checkEarningsAlerts()`, `cacheEarningsDatesFromFMP()`.
+
+### TOAST-3 — New cash credited
+
+**Formula:** `checkCashChanges()` compares each Schwab account's current cash balance against the last-seen baseline (`alphapicks_cash_monitor`); fires when the increase is ≥ `$50` (`CASH_NEW_THRESHOLD` — filters interest/rounding noise). Excludes DRIP-funded increases: if the account's `'Reinvest Shares'` journal total for today/yesterday is within 20% of the cash increase, it's treated as a reinvestment passing through rather than genuinely new external cash, and suppressed.
+
+**Source:** `showCashDeployToast()`, `checkCashChanges()`.
+
+### TOAST-4 — FMP daily usage summary (N/250)
+
+**Formula:** once-per-ET-day toast reporting the server-tallied FMP call count for today (`fmp_usage.log`, served via `/fmp-usage-summary`) against the 250-call/day free-tier limit, flagged red if over.
+
+**This is the first thing to check whenever any FMP-backed feature — prices, dividend history, `TOAST-2`'s earnings lookup — starts silently failing with `429 Limit Reach`.** Confirmed live 2026-08-26: on the current free tier, normal same-day usage across price refreshes + dividend history + earnings lookups is enough on its own to exhaust 250 calls; a 429 here is not automatically a billing problem, check this toast (or reload to force a fresh check) before assuming either a code bug or a plan upgrade is needed.
+
+**Gotcha — dedup is server-authoritative, not local:** the dashboard is reachable from several distinct origins (localhost, LAN IP, Tailscale IP), each with its own separate localStorage, so a purely client-side dedup flag showed this toast once per origin visited the same day — confirmed 2026-08-01 (three duplicate toasts in one day). The real dedup lives in `store.json` via the `/fmp-usage-summary` response's `alreadyShown` flag; the localStorage flag is only a same-tab fast path to skip a redundant network round-trip.
+
+**Source:** `checkDailyFmpUsage()`; call-site instrumentation via `logFmpUsage()` — used inconsistently across the file, which is exactly what made `TOAST-2`'s 2026-08-18 quota-exhaustion bug invisible until someone checked FMP's own dashboard directly.
+
+### TOAST-5 — Price data degraded (unattended log capture skipped)
+
+**Formula:** surfaces `price_source_alert`, a flag set server-side by the unattended overnight auto-log job (`Write-PriceAlert` in `schwab_server.ps1`) when it had to skip writing a daily snapshot because too few symbols priced successfully — likely the same FMP quota exhaustion `TOAST-4` reports on. That job runs with no browser open, so this toast is the only way the desktop app itself surfaces the skip after the fact. Dedup on the alert's own timestamp (`price_source_alert_seen`) so it only shows once per occurrence.
+
+**Source:** `checkPriceSourceAlert()`.
+
+### TOAST-6 — Stock Buy Call reminder
+
+**Formula:** fires on the 1st and 15th of each month (rolled forward to the next trading day across weekends/holidays), gated to Israel local time ≥ 7 AM, once per calendar occurrence (`alphapicks_buycall_notified`). Purely a scheduled reminder — no market-data dependency, no fragility chain to document beyond the date math itself.
+
+**Source:** `checkBuyCallReminder()`.
+
+### Other confirmation toasts (no calc/data-source chain worth its own entry)
+
+Log captured, log exported, pending-log-save reminder, daily-change history repaired (see `LOG-1`–`LOG-7` for the actual data these describe), plus a handful of purely cosmetic confirmations (Schwab account synced, a ticker added to a group, a store-sync failure warning). These just echo a state change that already happened elsewhere — if one shows a wrong number, the bug is in the section it's reporting on, not in the toast itself.
 
 ---
 
