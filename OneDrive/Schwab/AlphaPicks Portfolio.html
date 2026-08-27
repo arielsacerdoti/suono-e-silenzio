@@ -224,6 +224,20 @@
       letter-spacing: 0.04em;
     }
 
+    .earnings-cal-badge {
+      display: inline-block;
+      background: #3a2e0f;
+      color: #d29922;
+      font-weight: 700;
+      font-size: 0.68rem;
+      padding: 0.1rem 0.35rem;
+      border-radius: 5px;
+      margin-left: 4px;
+      vertical-align: middle;
+      white-space: nowrap;
+      cursor: default;
+    }
+
     .company-name {
       font-weight: 500;
       color: #e6edf3;
@@ -1032,7 +1046,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-unreinvested-div-buydate-fix';
+  const BUILD_VERSION = '2026-08-27-earnings-calendar-badge';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -1851,6 +1865,39 @@
     }
 
     if (changed) localStorage.setItem('alphapicks_earnings_notified', JSON.stringify(notified));
+    renderEarningsCalendarBadges();
+  }
+
+  // Small 📅N badge next to a ticker's name whenever it has earnings in the next 7 days --
+  // reuses alphapicks_earnings_dates (the same cache checkEarningsAlerts() above populates,
+  // no separate fetch). Runs at the end of checkEarningsAlerts() so it stays in sync with
+  // whatever refresh cycle just rebuilt the tables; idempotent (clears any stale badge first)
+  // so calling it repeatedly, or on a table that was just torn down and rebuilt, is always safe.
+  function renderEarningsCalendarBadges() {
+    let cache; try { cache = JSON.parse(localStorage.getItem('alphapicks_earnings_dates') || '{}'); } catch (_) { return; }
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const rows = document.querySelectorAll(
+      '#picks-tbody tr[data-ticker], #qgi-tbody tr[data-ticker], ' +
+      '#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol], #ira-tbody tr[data-symbol]'
+    );
+    rows.forEach(row => {
+      const sym = row.dataset.ticker || row.dataset.symbol;
+      const badge = row.querySelector('.ticker-badge');
+      if (!badge) return;
+      const existing = badge.parentElement.querySelector('.earnings-cal-badge');
+      if (existing) existing.remove();
+      const dateStr = sym && cache[sym];
+      if (!dateStr) return;
+      const d = new Date(dateStr + 'T00:00:00');
+      const daysUntil = Math.round((d - today) / 86400000);
+      if (daysUntil < 0 || daysUntil > 7) return;
+      const when = daysUntil === 0 ? 'today' : daysUntil === 1 ? 'tomorrow' : `in ${daysUntil} days`;
+      const icon = document.createElement('span');
+      icon.className = 'earnings-cal-badge';
+      icon.title = `Earnings ${when} — ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      icon.textContent = `📅${d.getDate()}`;
+      badge.insertAdjacentElement('afterend', icon);
+    });
   }
 
   // ── Daily portfolio log ───────────────────────────────────────────────────
