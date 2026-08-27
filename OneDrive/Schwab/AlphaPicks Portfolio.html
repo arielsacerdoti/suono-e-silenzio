@@ -1046,7 +1046,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-earnings-calendar-badge';
+  const BUILD_VERSION = '2026-08-27-earnings-7day-widen';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -1731,8 +1731,15 @@
     const today = new Date(); today.setHours(0, 0, 0, 0);
 
     const fmt = d => d.toISOString().split('T')[0];
-    const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    const tomorrow  = new Date(today); tomorrow.setDate(today.getDate() + 1);
+    const yesterday  = new Date(today); yesterday.setDate(today.getDate() - 1);
+    // Was +1 day (tomorrow) -- widened to +7 so the earnings-calendar badge (MOB/TOAST-2's
+    // 📅 badge, shows for anything 0-7 days out) has real data to work with instead of
+    // depending almost entirely on cacheEarningsDatesFromFMP's opportunistic per-quote
+    // discovery, which is the only path that could see further than a day or two ahead before
+    // this and is itself degraded whenever FMP is rate-limited (confirmed 2026-08-27). The
+    // ±1-day TOAST-2 alert itself is unaffected -- that's gated by its own explicit check
+    // further down, independent of how wide this discovery window is.
+    const weekAhead  = new Date(today); weekAhead.setDate(today.getDate() + 7);
 
     // Cooldown (not once-per-day) — was a once-per-ET-calendar-day flag, but that gave the
     // live lookup exactly one shot: if it ran while a source was down (FMP 429) or before a
@@ -1758,7 +1765,11 @@
       const dateStr = earningsCache[sym];
       if (!dateStr) continue;
       const diff = Math.round((new Date(dateStr) - today) / 86400000);
-      if (diff >= -1 && diff <= 1) {
+      // Widened to +7 (was +1) alongside the discovery window below -- a date already known to
+      // be 2-7 days out shouldn't be re-queried live every cooldown cycle just because it's
+      // outside the ±1-day TOAST-2 alert range; that range is enforced separately, later, right
+      // where the toast actually fires.
+      if (diff >= -1 && diff <= 7) {
         earningsMap[sym] = dateStr;
         console.log(`[Earnings] cache hit: ${sym} = ${dateStr} (daysUntil=${diff})`);
       }
@@ -1780,7 +1791,7 @@
       if (needLive.length) {
         try {
           const url = `https://financialmodelingprep.com/stable/earnings-calendar` +
-                      `?from=${fmt(yesterday)}&to=${fmt(tomorrow)}&apikey=${FMP_KEY}`;
+                      `?from=${fmt(yesterday)}&to=${fmt(weekAhead)}&apikey=${FMP_KEY}`;
           const data = await fetch(url).then(r => r.json());
           for (const ev of data ?? []) {
             if (ev.symbol && ev.date && needLive.includes(ev.symbol)) {
@@ -1802,30 +1813,39 @@
       // earnings?date=YYYY-MM-DD) needs no auth and returns real data, but has no CORS header
       // for browser fetch -- confirmed via a direct Origin-header test -- so it's routed
       // through fetchJSON's local-proxy-first chain like everything else CORS-blocked in this
-      // file. It's date-scoped (all reporters for one day), not per-symbol, so this is 3
-      // parallel requests total (yesterday/today/tomorrow) regardless of how many tickers are
-      // being checked -- not the old per-symbol chunking that caused the ~120s hang this
-      // replaces.
+      // file. It's date-scoped (all reporters for one day), not per-symbol, so request COUNT
+      // doesn't scale with how many tickers are being checked -- not the old per-symbol
+      // chunking that caused the ~120s hang this replaces. Was 3 requests (yesterday/today/
+      // tomorrow); widened to 9 (yesterday through +7 days) for the badge feature's real
+      // 7-day-ahead discovery -- but batched 3-at-a-time, NOT one big Promise.all. Confirmed
+      // live 2026-08-27: firing all 9 at once overwhelmed the local proxy chain -- the first 3
+      // (yesterday/today/tomorrow) succeeded, the remaining 6 (+2 through +7) ALL failed
+      // outright, even though the exact same +5 query worked perfectly (14 real rows) when
+      // run alone seconds later. Proxy overload, not missing data.
       const stillMissing = needLive.filter(s => !earningsMap[s]);
       if (stillMissing.length) {
-        try {
-          const days = [yesterday, today, tomorrow];
-          const results = await Promise.all(days.map(d =>
-            fetchJSON(`https://api.nasdaq.com/api/calendar/earnings?date=${fmt(d)}`, 8000)
-          ));
-          results.forEach((data, i) => {
-            const rows = data?.data?.rows;
-            if (!Array.isArray(rows)) return;
-            const dateStr = fmt(days[i]);
-            for (const row of rows) {
-              if (row.symbol && stillMissing.includes(row.symbol) && !earningsMap[row.symbol]) {
-                earningsMap[row.symbol] = dateStr;
-                resolvedLive[row.symbol] = dateStr;
-                console.log(`[Earnings] Nasdaq calendar hit: ${row.symbol} = ${dateStr}`);
+        const days = [];
+        for (let i = -1; i <= 7; i++) { const d = new Date(today); d.setDate(today.getDate() + i); days.push(d); }
+        for (let b = 0; b < days.length; b += 3) {
+          const batch = days.slice(b, b + 3);
+          try {
+            const results = await Promise.all(batch.map(d =>
+              fetchJSON(`https://api.nasdaq.com/api/calendar/earnings?date=${fmt(d)}`, 8000).catch(() => null)
+            ));
+            results.forEach((data, i) => {
+              const rows = data?.data?.rows;
+              if (!Array.isArray(rows)) return;
+              const dateStr = fmt(batch[i]);
+              for (const row of rows) {
+                if (row.symbol && stillMissing.includes(row.symbol) && !earningsMap[row.symbol]) {
+                  earningsMap[row.symbol] = dateStr;
+                  resolvedLive[row.symbol] = dateStr;
+                  console.log(`[Earnings] Nasdaq calendar hit: ${row.symbol} = ${dateStr}`);
+                }
               }
-            }
-          });
-        } catch(e) { console.warn('[Earnings] Nasdaq calendar failed:', e.message); }
+            });
+          } catch(e) { console.warn('[Earnings] Nasdaq calendar batch failed:', e.message); }
+        }
       }
 
       // Persist live-resolved dates so later ticks today (and cache-eligible days going
