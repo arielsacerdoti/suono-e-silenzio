@@ -1032,7 +1032,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-manual-drip-match-fix';
+  const BUILD_VERSION = '2026-08-27-unreinvested-div-reminder';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -2829,6 +2829,91 @@
     }));
 
     if (changed) localStorage.setItem('alphapicks_notified', JSON.stringify(notified));
+  }
+
+  // ── Unreinvested-dividend reminder ──────────────────────────────────────────
+  // For tickers Schwab won't auto-DRIP (confirmed real pattern: B, TIGO), the user manually
+  // catches the dividend cash and reinvests it via an ordinary Buy. A missed one is easy to
+  // lose track of -- there's no live signal a position needs action (confirmed 2026-08-27:
+  // NEXA's dividend was simply never reinvested, only noticed while reviewing the ledger
+  // months later). This checks every Alpha Picks/QG&I holding's real dividend history for a
+  // payment that's had enough time to be reinvested (using the SAME pay-date-anchored window
+  // as the ledger's own reinvestment match, via findReinvestmentMatch -- if it wouldn't count
+  // as reinvested there, it shouldn't count as reinvested here either) but has neither a
+  // broker-DRIP entry nor a matching manual buy -- and reminds once per event, not every
+  // refresh, via a dedup key like TOAST-2's earnings alerts.
+  async function checkUnreinvestedDividends() {
+    // All four tabs, not just Alpha Picks/QG&I -- mirrors checkEarningsAlerts()'s allSymbols
+    // construction (TOAST-2) so Brokerage/IRA holdings get the same reminder coverage.
+    const bySymbol = {};
+    Array.from(document.querySelectorAll('#picks-tbody tr[data-ticker], #qgi-tbody tr[data-ticker]'))
+      .forEach(r => { bySymbol[r.dataset.ticker] = parseFloat(r.dataset.shares) || 0; });
+    Array.from(document.querySelectorAll('#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol], #ira-tbody tr[data-symbol]'))
+      .forEach(r => { if (r.dataset.symbol && r.dataset.symbol !== 'PRIVATE') bySymbol[r.dataset.symbol] = parseFloat(r.dataset.shares) || 0; });
+    const syms = Object.keys(bySymbol);
+    if (!syms.length) return;
+
+    const journal  = JSON.parse(localStorage.getItem('schwab_tx_journal') || '[]');
+    const csvTxns  = JSON.parse(localStorage.getItem('schwab_csv_txns') || '[]');
+    const notified = JSON.parse(localStorage.getItem('alphapicks_unreinvested_notified') || '{}');
+    let changed = false;
+    const nowMs = Date.now();
+
+    for (let i = 0; i < syms.length; i += 6) {
+      await Promise.all(syms.slice(i, i + 6).map(async sym => {
+        try {
+          const divs = await getDivHistoryCached(sym);
+          if (!divs || !divs.length) return;
+          const symBuys = [...csvTxns, ...journal].filter(j => j.symbol === sym && (j.action === 'buy' || j.action === 'Buy' || j.action === 'Reinvest Shares'));
+          const reinvs   = journal.filter(j => j.symbol === sym && (j.action || '').toLowerCase() === 'reinvest shares');
+
+          for (const d of divs) {
+            if (!(d.amount > 0)) continue;
+            const exMs = new Date(d.exDate + 'T12:00:00').getTime();
+            const payMs = exMs + 21 * 24 * 3600 * 1000;
+            // Not due for a reminder until the normal reinvestment window (see
+            // findReinvestmentMatch) has actually closed -- +35 days past the estimated pay
+            // date, same margin the ledger itself waits before concluding "not reinvested."
+            if (nowMs < payMs + 35 * 24 * 3600 * 1000) continue;
+            // Don't nag forever about something from a year ago -- past this, either it was
+            // caught some other way or it's stale enough that a fresh reminder isn't useful.
+            if (nowMs - payMs > 150 * 24 * 3600 * 1000) continue;
+
+            const notifKey = `${sym}_${d.exDate}`;
+            if (notified[notifKey]) continue;
+
+            // Real broker auto-DRIP already covers it -- no reminder needed.
+            const winEnd = new Date(exMs + 35 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+            if (reinvs.some(t => t.date >= d.exDate && t.date <= winEnd)) { notified[notifKey] = true; changed = true; continue; }
+
+            // Manual reinvestment already found -- nothing to remind about.
+            if (findReinvestmentMatch(symBuys, exMs)) { notified[notifKey] = true; changed = true; continue; }
+
+            const shares = bySymbol[sym] || 0;
+            const totalAmt = shares > 0 ? +(d.amount * shares).toFixed(2) : null;
+            showUnreinvestedDivToast(sym, d.exDate, d.amount, totalAmt);
+            notified[notifKey] = true;
+            changed = true;
+          }
+        } catch (_) {}
+      }));
+    }
+
+    if (changed) localStorage.setItem('alphapicks_unreinvested_notified', JSON.stringify(notified));
+  }
+
+  function showUnreinvestedDivToast(sym, exDate, perShare, totalAmt) {
+    const container = document.getElementById('div-toasts');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'div-toast';
+    toast.style.cssText = 'border-left-color:#d29922';
+    const amtStr = totalAmt != null ? `~$${totalAmt.toFixed(2)}` : `$${perShare.toFixed(4)}/sh`;
+    toast.innerHTML = `
+      <span class="div-toast-icon">💰</span>
+      <span class="div-toast-body"><strong>${sym}</strong> dividend (ex-div ${exDate}, ${amtStr}) still doesn't look reinvested — manual buy?</span>
+      <button class="div-toast-close" onclick="this.closest('.div-toast').remove()">✕</button>`;
+    container.appendChild(toast);
   }
 
   // Re-derive rows/tickers from the DOM and update Total Invested stat card.
@@ -5063,6 +5148,7 @@
     checkPendingLogSave();  // remind if captured but not yet saved to Excel
     checkDivAlerts();
     checkEarningsAlerts();
+    checkUnreinvestedDividends();
     autoBackfillHistory();   // silent, once per load — fills Dec 3 gap if not yet done
     autoBackfillGroupHistory('qgi'); // silent, once per load — anchors QG&I curve at its buy date
     savePriceCache();
@@ -8077,25 +8163,16 @@ ${body}</body></html>`;
           if (shares <= 0 || perShare <= 0) continue;
           const totalDiv  = +(perShare * shares).toFixed(2);
 
-          // Payment date is typically ~3 weeks after ex-div
+          // Payment date is typically ~3 weeks after ex-div -- Yahoo's events.dividends only
+          // gives us ex-date, so this is always an estimate; real per-company pay timing varies
+          // (confirmed live: TIGO's actual reinvestment landed a few days BEFORE this +21d
+          // estimate, meaning its real pay date runs faster than the generic assumption).
           const payMs  = exMs + 21 * 24 * 3600 * 1000;
           const payIso = new Date(payMs).toISOString().split('T')[0];
 
-          // Look for a matching buy within 60 days after ex-div (DRIP or manual reinvestment).
-          // Was 35 days -- too tight for a real manual-reinvestment pattern found live
-          // 2026-08-27: B's actual reinvestment buys land 44-46 days after ex-div (the user
-          // has to notice a dividend Schwab can't auto-DRIP, then place the buy by hand, which
-          // takes longer than the ~21-day pay-date assumption baked into the old window). 60
-          // days gives real manual reinvestment margin while still stopping well short of the
-          // ~90-day gap to the NEXT quarter's dividend/buy, so it won't cross-match those.
-          // Picks the CLOSEST-dated buy in the window, not just the first array match -- matters
-          // now that symBuys can contain an unrelated large buy (e.g. the original position-
-          // opening purchase) alongside the real small reinvestment buy.
-          const windowEnd = new Date(exMs + 60 * 24 * 3600 * 1000).toISOString().split('T')[0];
-          const candidates = symBuys.filter(j => j.date >= exIso && j.date <= windowEnd);
-          const match = candidates.length
-            ? candidates.reduce((closest, j) => Math.abs(new Date(j.date) - exMs) < Math.abs(new Date(closest.date) - exMs) ? j : closest)
-            : null;
+          // See findReinvestmentMatch() (shared with the live unreinvested-dividend reminder)
+          // for why this is anchored to the estimated pay date instead of the ex-date.
+          const match = findReinvestmentMatch(symBuys, exMs);
 
           // Was missing a real branch: anything that didn't match a broker-DRIP 'Reinvest
           // Shares' entry fell into a catch-all always labeled "reinvested" -- even a dividend
@@ -9134,16 +9211,51 @@ ${soldRowsData.length ? `<table>
     const CACHE_KEY = 'div_history_cache', TTL = 12 * 3600 * 1000;
     let cache = {}; try { cache = JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (_) {}
     if (cache[sym] && (Date.now() - cache[sym].ts < TTL)) return cache[sym].divs;
-    try {
+    const fetchOnce = async () => {
       const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1mo&range=5y&events=dividends&_cb=${Date.now()}`;
       const data = await fetchJSON(url);
       const raw  = data?.chart?.result?.[0]?.events?.dividends || {};
-      const divs = Object.entries(raw).map(([ts, ev]) => ({ exDate: new Date(parseInt(ts) * 1000).toISOString().slice(0, 10), amount: ev.amount || 0 }));
-      cache[sym] = { ts: Date.now(), divs };
-      try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+      return Object.entries(raw).map(([ts, ev]) => ({ exDate: new Date(parseInt(ts) * 1000).toISOString().slice(0, 10), amount: ev.amount || 0 }));
+    };
+    try {
+      // Same flakiness confirmed for AP-1's ledger fetch (fetchDivsFor) -- a single empty
+      // response doesn't reliably mean "no dividend history," so retry once before accepting
+      // it. Only cache a NON-empty result: caching an empty one for the full 12h TTL would
+      // silently blind every consumer of this cache (QGI-4's True IRR fold-in, the
+      // unreinvested-dividend reminder) to a ticker's real dividends for half a day off one
+      // bad proxy hop -- confirmed live 2026-08-27, this is exactly why NEXA's own missed
+      // reinvestment didn't surface on the reminder's first test run.
+      let divs = await fetchOnce();
+      if (!divs.length) divs = await fetchOnce();
+      if (divs.length) {
+        cache[sym] = { ts: Date.now(), divs };
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(cache)); } catch (_) {}
+      }
       return divs;
     } catch (_) { return cache[sym]?.divs || []; }
   }
+  // Shared reinvestment-match logic: given a ticker's buy history (schwab_csv_txns +
+  // schwab_tx_journal, action 'buy'/'Buy'/'Reinvest Shares') and a dividend's ex-date in ms,
+  // returns the matching buy (or null). Anchored to the ESTIMATED pay date (ex+21d), not the
+  // ex-date itself -- the ex-date is just when the market marks the stock down, the investor
+  // has no cash to reinvest until payment. [payDate-10, payDate+35] (45 days total) was sized
+  // 2026-08-27 from real manual-reinvestment timing: B's buys land 23-25 days after the
+  // estimated pay date, TIGO's land up to ~10 days BEFORE it (its real pay date runs faster
+  // than the generic +21d estimate). Picks the closest-dated candidate, not the first array
+  // match, since the buy list can contain an unrelated larger buy (e.g. the original position-
+  // opening purchase) alongside the real small reinvestment buy. Shared between AP-1's ledger
+  // (`printLedgerReport`) and the live unreinvested-dividend reminder (`checkUnreinvestedDividends`)
+  // so a future window/anchor tweak only has to happen in one place.
+  function findReinvestmentMatch(symBuys, exMs) {
+    const payMs       = exMs + 21 * 24 * 3600 * 1000;
+    const windowStart = new Date(payMs - 10 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    const windowEnd   = new Date(payMs + 35 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    const candidates  = symBuys.filter(j => j.date >= windowStart && j.date <= windowEnd);
+    return candidates.length
+      ? candidates.reduce((closest, j) => Math.abs(new Date(j.date) - payMs) < Math.abs(new Date(closest.date) - payMs) ? j : closest)
+      : null;
+  }
+
   // Shares held on a given date, walking the journal backward from the current count.
   function sharesHeldAtDate(sym, iso, currentShares, journal) {
     let sh = currentShares;
