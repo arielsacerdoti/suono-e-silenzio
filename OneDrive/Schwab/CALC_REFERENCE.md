@@ -370,7 +370,9 @@ All rendered as dismissible cards in the `#div-toasts` container (`.div-toast` c
 
 **Formula:** for every currently-held position, walks real dividend history (`getDivHistoryCached()`) and reminds once when a dividend has had enough time to be reinvested — using `findReinvestmentMatch()`, the SAME pay-date-anchored window `AP-1`'s ledger uses to decide whether a dividend counts as reinvested, so this can never disagree with what the ledger itself would say — but has neither a broker-DRIP journal entry nor a matching manual buy. Waits until `payDate + 35 days` has passed (the far edge of the match window) before reminding, and stops reminding about anything older than 150 days (stale enough that a fresh nudge isn't useful).
 
-**Dedup:** `alphapicks_unreinvested_notified`, keyed `${symbol}_${exDate}`.
+**Dedup:** `alphapicks_unreinvested_notified`, keyed `${symbol}_${exDate}`. Guarded against re-entrancy (`_unreinvestedCheckInProgress`) — an overlapping second invocation before the first finishes would otherwise read a stale copy of the dedup map and could double-fire the same event.
+
+**Fixed same day — was flooding with pre-purchase dividends:** `getDivHistoryCached()` returns a ticker's full 5-year history; the first version had no check for whether the position was even owned at a given dividend's ex-date, unlike `AP-1`'s `fetchDivsFor` which already guards this. Confirmed live: fired for CVX/ADC/FRT/RY/AEP/THFF/GRC/EPR and more, all predating the user's real purchase. Now skips any dividend paid before the row's own buy date (`dataset.date`) — a full 65-symbol scan went from 22 toasts (mostly false positives) to 2 real ones.
 
 **Source:** `showUnreinvestedDivToast()`, `checkUnreinvestedDividends()`, `findReinvestmentMatch()` (shared with `AP-1`).
 
