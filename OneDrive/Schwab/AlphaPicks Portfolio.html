@@ -169,9 +169,18 @@
     }
     .col-hidden { display: none !important; }
     .company-name {
+      display: flex;
+      align-items: center;
+      min-width: 0; /* lets the flex container actually shrink below content size in a table cell */
+    }
+    .company-name-text {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      min-width: 0; /* the truncation itself now lives here, not on .company-name -- a long name
+        used to clip the earnings-cal-badge appended after it, since both shared the same
+        overflow:hidden container. Wrapping just the name text lets IT truncate while the badge
+        (flex-shrink:0, see .earnings-cal-badge) stays fully visible as a fixed-size sibling. */
     }
 
     thead th {
@@ -226,6 +235,7 @@
 
     .earnings-cal-badge {
       display: inline-block;
+      flex-shrink: 0; /* stays fully visible even when .company-name-text truncates */
       background: #3a2e0f;
       color: #d29922;
       font-weight: 700;
@@ -1046,7 +1056,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-earnings-badge-reposition';
+  const BUILD_VERSION = '2026-08-27-earnings-badge-truncation-fix';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -1907,6 +1917,20 @@
       // share the ticker cell on Brokerage/IRA rows.
       const nameCell = row.querySelector('.company-name');
       if (!nameCell) return;
+      // Wrap the cell's actual name text in its own truncating span (once, idempotent -- a
+      // table rebuild recreates the cell as plain text, so this re-wraps naturally next run).
+      // A long company name's overflow:hidden used to clip the badge too, since both shared
+      // the same container -- confirmed live 2026-08-27 (CRDO: "Credo Technology Group
+      // Holding …" filled the cell and the badge silently never appeared). Now only the name
+      // text truncates; the badge (.earnings-cal-badge, flex-shrink:0) stays fully visible as
+      // a fixed-size sibling.
+      let textSpan = nameCell.querySelector('.company-name-text');
+      if (!textSpan) {
+        textSpan = document.createElement('span');
+        textSpan.className = 'company-name-text';
+        while (nameCell.firstChild) textSpan.appendChild(nameCell.firstChild);
+        nameCell.appendChild(textSpan);
+      }
       const existing = nameCell.querySelector('.earnings-cal-badge');
       if (existing) existing.remove();
       const dateStr = sym && cache[sym];
