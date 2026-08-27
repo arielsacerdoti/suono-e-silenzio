@@ -16,7 +16,7 @@
 - **QGI** — group-tag mechanics shared by Alpha Picks + QG&I (closed-position pooling, shared-ticker splitting, cash-dividend fold-in), plus the one genuinely QG&I-only ledger bug — see the section intro for which is which
 - **AP** — Alpha Picks-specific mechanics (its own dedicated audit path, sold-position tracking, and the dividend-history ledger both groups now share)
 - **LOG** — daily log capture and Excel export (both the server-side `.xlsx` writer and the client-side one)
-- **TOAST** — in-page alert/notification toasts (dividend, earnings, cash, FMP-quota, price-source, buy-call reminder)
+- **TOAST** — in-page alert/notification toasts (dividend, earnings, cash, FMP-quota, price-source, buy-call reminder, unreinvested-dividend reminder)
 - **MOB** — mobile app data sync
 - **ALLOC** — Allocation tab
 
@@ -363,6 +363,16 @@ All rendered as dismissible cards in the `#div-toasts` container (`.div-toast` c
 **Formula:** fires on the 1st and 15th of each month (rolled forward to the next trading day across weekends/holidays), gated to Israel local time ≥ 7 AM, once per calendar occurrence (`alphapicks_buycall_notified`). Purely a scheduled reminder — no market-data dependency, no fragility chain to document beyond the date math itself.
 
 **Source:** `checkBuyCallReminder()`.
+
+### TOAST-7 — Unreinvested-dividend reminder
+
+**Scope: all four tabs** (Brokerage/IRA/Alpha Picks/QG&I), added 2026-08-27 after NEXA's dividend was missed entirely with no live signal anything needed attention — only noticed while reviewing the ledger months later.
+
+**Formula:** for every currently-held position, walks real dividend history (`getDivHistoryCached()`) and reminds once when a dividend has had enough time to be reinvested — using `findReinvestmentMatch()`, the SAME pay-date-anchored window `AP-1`'s ledger uses to decide whether a dividend counts as reinvested, so this can never disagree with what the ledger itself would say — but has neither a broker-DRIP journal entry nor a matching manual buy. Waits until `payDate + 35 days` has passed (the far edge of the match window) before reminding, and stops reminding about anything older than 150 days (stale enough that a fresh nudge isn't useful).
+
+**Dedup:** `alphapicks_unreinvested_notified`, keyed `${symbol}_${exDate}`.
+
+**Source:** `showUnreinvestedDivToast()`, `checkUnreinvestedDividends()`, `findReinvestmentMatch()` (shared with `AP-1`).
 
 ### Other confirmation toasts (no calc/data-source chain worth its own entry)
 
