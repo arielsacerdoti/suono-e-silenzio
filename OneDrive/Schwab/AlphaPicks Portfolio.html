@@ -1032,7 +1032,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-qgi-tag-sync-fixes';
+  const BUILD_VERSION = '2026-08-27-ledger-divhistory-retry';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -8030,13 +8030,28 @@ ${body}</body></html>`;
 
     // ── Fetch dividend history from Yahoo for each starred ticker ────────────
     const divRows = []; // { date, ticker, description, amount, type: 'drip'|'div-reinvested'|'div-cash' }
+    // Symbols whose dividend fetch came back empty even after a retry -- surfaced in the
+    // report so a real gap (Yahoo/proxy down for that ticker) doesn't silently masquerade as
+    // "this position paid no dividends." See the retry comment below for why this exists.
+    const divFetchFailed = [];
 
     const fetchDivsFor = async sym => {
       try {
         const url  = `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?interval=1mo&range=5y&events=dividends`;
-        const data = await fetchJSON(url);
-        const divs = data?.chart?.result?.[0]?.events?.dividends;
-        if (!divs) return;
+        let data = await fetchJSON(url);
+        let divs = data?.chart?.result?.[0]?.events?.dividends;
+        // The underlying CORS-proxy fallback chain is flaky enough that a single empty/failed
+        // response doesn't reliably mean "this ticker paid no dividends" -- confirmed live
+        // 2026-08-27: GM's dividend fetch came back with an empty events.dividends object on
+        // one attempt, then 16 real entries on the very next call, no code change in between.
+        // A silent per-symbol miss here previously had no visible trace (bare `catch(_){}`,
+        // no retry) -- exactly the kind of gap that made GM/NEXA/NEM/MU's real reinvested
+        // dividends vanish from a ledger run without any indication anything had gone wrong.
+        if (!divs || !Object.keys(divs).length) {
+          data = await fetchJSON(url);
+          divs = data?.chart?.result?.[0]?.events?.dividends;
+        }
+        if (!divs || !Object.keys(divs).length) { divFetchFailed.push(sym); return; }
 
         // Journal buys for this ticker (for matching reinvestments)
         const symBuys = journal.filter(j => j.symbol === sym && (j.action === 'buy' || j.action === 'Buy' || j.action === 'Reinvest Shares'));
@@ -8063,13 +8078,24 @@ ${body}</body></html>`;
           const windowEnd = new Date(exMs + 35 * 24 * 3600 * 1000).toISOString().split('T')[0];
           const match = symBuys.find(j => j.date >= exIso && j.date <= windowEnd);
 
+          // Was missing a real branch: anything that didn't match a broker-DRIP 'Reinvest
+          // Shares' entry fell into a catch-all always labeled "reinvested" -- even a dividend
+          // with NO matching buy anywhere nearby (i.e. a genuine cash payout, never reinvested
+          // at all) got mislabeled that way. Doesn't change any totals (all three types feed
+          // XIRR identically), but misrepresents what actually happened with the cash.
           let type, desc;
           if (match && match.action === 'Reinvest Shares') {
             type = 'drip';
             desc = `Dividend reinvested — DRIP (${perShare.toFixed(4)}/sh × ${shares} sh)`;
-          } else {
+          } else if (match) {
+            // A same-window buy exists but wasn't broker-flagged as DRIP -- ambiguous (could be
+            // a manual reinvestment of this dividend, or just a coincidental unrelated buy).
+            // Keep treating it as reinvested, matching prior behavior for this case.
             type = 'div-reinvested';
             desc = `Dividend reinvested (${perShare.toFixed(4)}/sh × ${shares} sh)`;
+          } else {
+            type = 'div-cash';
+            desc = `Dividend received — cash, not reinvested (${perShare.toFixed(4)}/sh × ${shares} sh)`;
           }
 
           // Use payment date if before today, else ex-div date
@@ -8248,6 +8274,7 @@ ${body}</body></html>`;
 
 <h1>${cfg.label} — Cash Flow Ledger</h1>
 <div class="sub">Generated: ${asOf} &nbsp;·&nbsp; ${activeRows.length} open position${activeRows.length!==1?'s':''} &nbsp;·&nbsp; ${salesData.length + closedSyms.length} sold position${(salesData.length + closedSyms.length)!==1?'s':''} &nbsp;·&nbsp; ${divRows.length} dividend event${divRows.length!==1?'s':''}</div>
+${divFetchFailed.length ? `<div class="sub" style="color:#b91c1c">⚠ Dividend history could not be fetched for ${divFetchFailed.join(', ')} (Yahoo/proxy chain failed twice) — totals above may understate reality for these tickers. Try regenerating the ledger.</div>` : ''}
 
 <h2>Summary</h2>
 ${wfSVG}
