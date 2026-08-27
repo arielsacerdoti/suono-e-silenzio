@@ -7677,8 +7677,18 @@
   function addTaggedToGroup(symbol, group = 'alphapicks') {
     const cfg = GROUPS[group] || GROUPS.alphapicks;
     if (schwabAccounts && schwabAccounts.length) {
-      const brokerageAccts = schwabAccounts.filter(a => !getRetirementAccountNums().includes(a.securitiesAccount?.accountNumber));
-      renderGroupFromSchwab(group, brokerageAccts);
+      // Must also rebuild Brokerage (not just the target group's own tab) so the newly-tagged
+      // symbol's row disappears from Brokerage immediately -- renderBrokerageTab() is what
+      // filters out tagged symbols (line ~7026: `if (tagged.includes(sym) || taggedQGI.includes(sym))
+      // return;`), and nothing else was calling it here. The REMOVE branch of toggleTag() already
+      // rebuilds both via _renderGroupAndBrokerage(); this ADD path only rebuilt the target
+      // group's tab, leaving a stale Brokerage row behind. It wasn't just a one-render gap either:
+      // syncSchwab()'s own periodic refresh SKIPS re-rendering Brokerage entirely whenever share
+      // counts haven't changed since the last render (its "avoid flicker" fingerprint check is
+      // symbol:quantity only, blind to tagging state) -- so a stale row from this gap could sit
+      // in Brokerage indefinitely, until either a real buy/sell forced a fingerprint mismatch or
+      // a full page reload ran renderFromSchwabCache() fresh. Confirmed 2026-08-27 (ALL/TXN).
+      _renderGroupAndBrokerage(group);
       fetchPrices();
     }
     const c = document.getElementById('div-toasts');
