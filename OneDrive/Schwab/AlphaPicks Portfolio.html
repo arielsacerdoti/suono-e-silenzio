@@ -1046,7 +1046,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-earnings-7day-widen';
+  const BUILD_VERSION = '2026-08-27-earnings-badge-reposition';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -1902,9 +1902,12 @@
     );
     rows.forEach(row => {
       const sym = row.dataset.ticker || row.dataset.symbol;
-      const badge = row.querySelector('.ticker-badge');
-      if (!badge) return;
-      const existing = badge.parentElement.querySelector('.earnings-cal-badge');
+      // Lives in the company-name cell (between Name and Shares) rather than next to the
+      // ticker badge -- more room there, and doesn't crowd the ☆/◇ tag-toggle buttons that
+      // share the ticker cell on Brokerage/IRA rows.
+      const nameCell = row.querySelector('.company-name');
+      if (!nameCell) return;
+      const existing = nameCell.querySelector('.earnings-cal-badge');
       if (existing) existing.remove();
       const dateStr = sym && cache[sym];
       if (!dateStr) return;
@@ -1916,7 +1919,7 @@
       icon.className = 'earnings-cal-badge';
       icon.title = `Earnings ${when} — ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
       icon.textContent = `📅${d.getDate()}`;
-      badge.insertAdjacentElement('afterend', icon);
+      nameCell.appendChild(icon);
     });
   }
 
