@@ -168,7 +168,13 @@
       width: 100%;
     }
     .col-hidden { display: none !important; }
-    .company-name {
+    /* .company-name (the <td> itself) deliberately does NOT get display:flex -- that overrides
+       its display from the default table-cell to flex, which breaks the general `td { vertical-
+       align: middle }` rule (vertical-align only positions real table-cell boxes; a flex-display
+       td just top-aligns instead) and made every company name sit visibly higher than the rest
+       of its row. The flex layout lives on .company-name-inner, a wrapper INSIDE the td, so the
+       td itself stays a normal table-cell and keeps the row's normal vertical centering. */
+    .company-name-inner {
       display: flex;
       align-items: center;
       min-width: 0; /* lets the flex container actually shrink below content size in a table cell */
@@ -177,10 +183,10 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      min-width: 0; /* the truncation itself now lives here, not on .company-name -- a long name
-        used to clip the earnings-cal-badge appended after it, since both shared the same
-        overflow:hidden container. Wrapping just the name text lets IT truncate while the badge
-        (flex-shrink:0, see .earnings-cal-badge) stays fully visible as a fixed-size sibling. */
+      min-width: 0; /* the truncation itself lives here, not on the td -- a long name used to
+        clip the earnings-cal-badge appended after it, since both shared the same overflow:hidden
+        container. Wrapping just the name text lets IT truncate while the badge (flex-shrink:0,
+        see .earnings-cal-badge) stays fully visible as a fixed-size sibling. */
     }
 
     thead th {
@@ -1056,7 +1062,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-earnings-badge-truncation-fix';
+  const BUILD_VERSION = '2026-08-27-earnings-badge-vertical-align';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -1917,21 +1923,26 @@
       // share the ticker cell on Brokerage/IRA rows.
       const nameCell = row.querySelector('.company-name');
       if (!nameCell) return;
-      // Wrap the cell's actual name text in its own truncating span (once, idempotent -- a
-      // table rebuild recreates the cell as plain text, so this re-wraps naturally next run).
-      // A long company name's overflow:hidden used to clip the badge too, since both shared
-      // the same container -- confirmed live 2026-08-27 (CRDO: "Credo Technology Group
-      // Holding …" filled the cell and the badge silently never appeared). Now only the name
-      // text truncates; the badge (.earnings-cal-badge, flex-shrink:0) stays fully visible as
-      // a fixed-size sibling.
-      let textSpan = nameCell.querySelector('.company-name-text');
-      if (!textSpan) {
-        textSpan = document.createElement('span');
+      // Build an inner flex wrapper (once, idempotent -- a table rebuild recreates the cell as
+      // plain text, so this re-wraps naturally next run) holding a truncating text span + the
+      // badge. The flex layout deliberately lives on this inner wrapper, NOT the <td> itself --
+      // putting display:flex directly on .company-name broke the row's normal vertical-align:
+      // middle centering (confirmed live 2026-08-27: every company name sat visibly higher than
+      // the rest of its row). A long name's overflow:hidden also used to clip the badge outright
+      // when both shared one container (CRDO: "Credo Technology Group Holding …" filled the
+      // cell, badge never appeared) -- now only .company-name-text truncates; the badge
+      // (flex-shrink:0) stays fully visible as a fixed-size sibling.
+      let inner = nameCell.querySelector('.company-name-inner');
+      if (!inner) {
+        inner = document.createElement('span');
+        inner.className = 'company-name-inner';
+        const textSpan = document.createElement('span');
         textSpan.className = 'company-name-text';
         while (nameCell.firstChild) textSpan.appendChild(nameCell.firstChild);
-        nameCell.appendChild(textSpan);
+        inner.appendChild(textSpan);
+        nameCell.appendChild(inner);
       }
-      const existing = nameCell.querySelector('.earnings-cal-badge');
+      const existing = inner.querySelector('.earnings-cal-badge');
       if (existing) existing.remove();
       const dateStr = sym && cache[sym];
       if (!dateStr) return;
@@ -1943,7 +1954,7 @@
       icon.className = 'earnings-cal-badge';
       icon.title = `Earnings ${when} — ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
       icon.textContent = `📅${d.getDate()}`;
-      nameCell.appendChild(icon);
+      inner.appendChild(icon);
     });
   }
 
