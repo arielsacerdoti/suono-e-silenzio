@@ -1095,9 +1095,25 @@
     document.body.appendChild(t);
     setTimeout(() => t.remove(), 8000);
   }
+  // Must cover every key _pollStore() (below) treats as cross-device-synced -- it PULLS
+  // qgi_tagged/qgi_sold/qgi_sales/group_alloc from the server on every 30s poll regardless,
+  // but this push side only matched 'alphapicks_'/'schwab_' prefixes, so none of those four
+  // keys (all named 'qgi_*' or 'group_alloc', matching neither prefix) were ever actually
+  // pushed TO the server -- only pulled FROM it. A local change stuck for as long as nothing
+  // else touched the key, then got silently reverted by the very next poll, because the poller
+  // has no way to tell "server is behind my own unsent edit" apart from "another device
+  // changed this." Confirmed 2026-08-27: tagging ALL/TXN into QG&I rendered immediately (local
+  // write + render, no server round-trip needed) but the tag was never sent, so the untouched
+  // server copy overwrote it back out within 30 seconds. qgi_tagged already having LMT/SPB/PSTL
+  // from the 2026-08-13 fix was a one-off manual push during that incident, not evidence this
+  // path ever worked for qgi_*.
+  function _isSyncedKey(key) {
+    return (key.startsWith('alphapicks_') || key.startsWith('schwab_') || key.startsWith('qgi_') || key === 'group_alloc')
+        && !_STORE_SKIP.has(key);
+  }
   localStorage.setItem = function(key, value) {
     _origSetItem(key, value);
-    if ((key.startsWith('alphapicks_') || key.startsWith('schwab_')) && !_STORE_SKIP.has(key)) {
+    if (_isSyncedKey(key)) {
       fetch(_STORE_BASE + '/store', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -1108,7 +1124,7 @@
   };
   localStorage.removeItem = function(key) {
     _origRemoveItem(key);
-    if ((key.startsWith('alphapicks_') || key.startsWith('schwab_')) && !_STORE_SKIP.has(key)) {
+    if (_isSyncedKey(key)) {
       fetch(_STORE_BASE + '/store', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
