@@ -334,7 +334,9 @@ All rendered as dismissible cards in the `#div-toasts` container (`.div-toast` c
 
 **Fixed again 2026-08-26 — the once-per-day fix was too blunt:** exactly one shot per day meant any symbol still unresolved after that single attempt stayed unresolved for the rest of the day, even though `checkEarningsAlerts()` itself keeps re-running every 5 minutes during market hours. This missed DY's real earnings toast: the one daily attempt happened to run while FMP was returning `429 Limit Reach` AND before Nasdaq's calendar had ingested DY's release yet — confirmed live that Nasdaq's calendar is an intraday-updating feed, not a static daily snapshot (32 rows/no DY, then 48 rows/DY present, minutes apart, no code change in between). Fixed by converting the once-per-day flag into a 20-minute cooldown timestamp — already-resolved symbols are untouched (they hit the cache short-circuit before ever reaching the throttled block), only still-missing symbols get retried through the day.
 
-**Source:** `showEarningsToast()`, `checkEarningsAlerts()`, `cacheEarningsDatesFromFMP()`.
+**Widened 2026-08-27 — the underlying date cache now also feeds a display badge, not just this toast:** a small `📅N` badge (day-of-month) now renders next to any ticker's name whenever `alphapicks_earnings_dates` has a date 0-7 days out (`renderEarningsCalendarBadges()`, called at the end of `checkEarningsAlerts()`, idempotent). That needed real discovery beyond ±1 day, so both the FMP query's date range and the Nasdaq fallback's per-day query set were widened from a 3-day span (yesterday/today/tomorrow) to 9 days (yesterday through +7) — the ±1-day alert-firing logic itself is untouched, gated by its own separate check. Confirmed live: firing all 9 Nasdaq date-queries in one `Promise.all` overwhelmed the local proxy chain (first 3 succeeded, the other 6 ALL failed outright, even though the same +5-day query worked alone seconds later) — fixed by batching 3-at-a-time.
+
+**Source:** `showEarningsToast()`, `checkEarningsAlerts()`, `cacheEarningsDatesFromFMP()`, `renderEarningsCalendarBadges()`.
 
 ### TOAST-3 — New cash credited
 
