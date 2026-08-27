@@ -1032,7 +1032,7 @@
   // actually meaningful here: the local server sends no Last-Modified header at all, so per
   // spec the browser fell back to "now" and the header always read today's date regardless
   // of when the file last changed. Confirmed 2026-08-10.
-  const BUILD_VERSION = '2026-08-27-unreinvested-div-reminder';
+  const BUILD_VERSION = '2026-08-27-unreinvested-div-buydate-fix';
 
   // #revision-date lives much earlier in the document (the header), but has to be populated
   // here, after BUILD_VERSION exists -- see the comment left at that span's old inline
@@ -2842,14 +2842,28 @@
   // as reinvested there, it shouldn't count as reinvested here either) but has neither a
   // broker-DRIP entry nor a matching manual buy -- and reminds once per event, not every
   // refresh, via a dedup key like TOAST-2's earnings alerts.
+  let _unreinvestedCheckInProgress = false;
   async function checkUnreinvestedDividends() {
+    // Re-entrancy guard: notified is read once at the start and written once at the end, so
+    // two overlapping invocations would each work from their own stale copy and could both
+    // fire a toast for the same event before either write lands -- same class of guard
+    // loadIRRData() already uses (irrLoadInProgress).
+    if (_unreinvestedCheckInProgress) return;
+    _unreinvestedCheckInProgress = true;
+    try {
     // All four tabs, not just Alpha Picks/QG&I -- mirrors checkEarningsAlerts()'s allSymbols
     // construction (TOAST-2) so Brokerage/IRA holdings get the same reminder coverage.
+    // bySymbol carries the buy date too -- getDivHistoryCached() returns a ticker's FULL 5-year
+    // history, and without this a dividend paid before the user ever owned the position reads
+    // as "not reinvested," which is nonsense. printLedgerReport's fetchDivsFor already guards
+    // this (`if (buyDate && exIso < buyDate) continue`); this function needed the same guard
+    // and didn't have it -- confirmed live 2026-08-27: CVX/ADC/FRT/RY/AEP/THFF/GRC/EPR and more
+    // all fired for dividends that predate the user's real purchase.
     const bySymbol = {};
     Array.from(document.querySelectorAll('#picks-tbody tr[data-ticker], #qgi-tbody tr[data-ticker]'))
-      .forEach(r => { bySymbol[r.dataset.ticker] = parseFloat(r.dataset.shares) || 0; });
+      .forEach(r => { bySymbol[r.dataset.ticker] = { shares: parseFloat(r.dataset.shares) || 0, buyDate: r.dataset.date || '' }; });
     Array.from(document.querySelectorAll('#brok-stocks-tbody tr[data-symbol], #brok-etfs-tbody tr[data-symbol], #ira-tbody tr[data-symbol]'))
-      .forEach(r => { if (r.dataset.symbol && r.dataset.symbol !== 'PRIVATE') bySymbol[r.dataset.symbol] = parseFloat(r.dataset.shares) || 0; });
+      .forEach(r => { if (r.dataset.symbol && r.dataset.symbol !== 'PRIVATE') bySymbol[r.dataset.symbol] = { shares: parseFloat(r.dataset.shares) || 0, buyDate: r.dataset.date || '' }; });
     const syms = Object.keys(bySymbol);
     if (!syms.length) return;
 
@@ -2866,9 +2880,14 @@
           if (!divs || !divs.length) return;
           const symBuys = [...csvTxns, ...journal].filter(j => j.symbol === sym && (j.action === 'buy' || j.action === 'Buy' || j.action === 'Reinvest Shares'));
           const reinvs   = journal.filter(j => j.symbol === sym && (j.action || '').toLowerCase() === 'reinvest shares');
+          const buyDate  = bySymbol[sym].buyDate;
 
           for (const d of divs) {
             if (!(d.amount > 0)) continue;
+            // Skip anything paid before the position's own buy date -- getDivHistoryCached()
+            // returns the ticker's full 5-year history, most of which predates the user ever
+            // owning it.
+            if (buyDate && d.exDate < buyDate) continue;
             const exMs = new Date(d.exDate + 'T12:00:00').getTime();
             const payMs = exMs + 21 * 24 * 3600 * 1000;
             // Not due for a reminder until the normal reinvestment window (see
@@ -2889,7 +2908,7 @@
             // Manual reinvestment already found -- nothing to remind about.
             if (findReinvestmentMatch(symBuys, exMs)) { notified[notifKey] = true; changed = true; continue; }
 
-            const shares = bySymbol[sym] || 0;
+            const shares = bySymbol[sym].shares || 0;
             const totalAmt = shares > 0 ? +(d.amount * shares).toFixed(2) : null;
             showUnreinvestedDivToast(sym, d.exDate, d.amount, totalAmt);
             notified[notifKey] = true;
@@ -2900,6 +2919,7 @@
     }
 
     if (changed) localStorage.setItem('alphapicks_unreinvested_notified', JSON.stringify(notified));
+    } finally { _unreinvestedCheckInProgress = false; }
   }
 
   function showUnreinvestedDivToast(sym, exDate, perShare, totalAmt) {
