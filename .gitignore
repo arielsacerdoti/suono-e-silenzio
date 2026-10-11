@@ -1,16 +1,11 @@
 # =============================================================================
 # DEFAULT-DENY. Everything is ignored unless explicitly allowed below.
 #
-# This repo (arielsacerdoti/suono-e-silenzio) is PUBLIC and its root is the
-# entire user profile, so every file on the machine sits inside its working
-# tree. A denylist cannot be trusted here — it only protects what someone
-# remembered to list, and the cost of forgetting one line is publishing it.
-#
-# Written 2026-08-03 after finding the Autom8Labs Business Dashboard (115
-# customer names, 124 deal values) untracked and unprotected, alongside
-# github_pat.txt, live Schwab OAuth tokens and an Android private key. None had
-# ever been committed — confirmed against full history — but all were one
-# `git add -A` away from it.
+# This repo (arielsacerdoti/suono-e-silenzio) is PUBLIC. Until 2026-10-11 its
+# root was the entire user profile (C:\Users\sacer), which is why this file is
+# default-deny; it now lives in C:\Users\sacer\Projects\suono-e-silenzio and
+# holds only the website. Default-deny stays: a denylist only protects what
+# someone remembered to list, and forgetting one line means publishing it.
 #
 # To track something new, add an explicit `!` line for it. That extra step is
 # the point: publishing becomes deliberate rather than accidental.
@@ -33,10 +28,7 @@
 !/js/
 !/lang/
 
-# ── Nothing under OneDrive/ belongs here ─────────────────────────────────────
-# The AlphaPicks dashboard moved to its own PRIVATE repo on 2026-10-11
-# (arielsacerdoti/alphapicks-dashboard, nested at OneDrive/Schwab) and was purged
-# from this repo's history: an API key hardcoded in it had been public here.
-# Autom8Labs/Business Dashboard and Supra are likewise their own private repos.
-# The default-deny rule at the top already excludes all of OneDrive; do not add
-# an allowlist line for anything in it.
+# The AlphaPicks dashboard was tracked here until 2026-10-11; it moved to its own
+# PRIVATE repo (arielsacerdoti/alphapicks-dashboard) and was purged from this
+# repo's history, because an API key hardcoded in it had been public here.
+# Never add personal, financial or business files to this repo.
