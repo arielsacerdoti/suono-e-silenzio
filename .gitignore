@@ -33,29 +33,10 @@
 !/js/
 !/lang/
 
-# ── AlphaPicks dashboard: the three source files, and nothing else ───────────
-# Descend into OneDrive/Schwab without letting anything else through. Each level
-# must be re-ignored, because Git will not look inside a directory it has
-# already excluded.
-!/OneDrive/
-/OneDrive/*
-!/OneDrive/Schwab/
-/OneDrive/Schwab/*
-!/OneDrive/Schwab/AlphaPicks Mobile.html
-!/OneDrive/Schwab/AlphaPicks Portfolio.html
-!/OneDrive/Schwab/schwab_server.ps1
-!/OneDrive/Schwab/CALC_REFERENCE.md
-
-# Deliberately NOT allowed through, and each for a reason:
-#   schwab_tokens.json / schwab_config.json  live brokerage OAuth credentials
-#   github_pat.txt                           a GitHub personal access token
-#   store.json / mobile_data*.json           positions and balances
-#   *.xlsx / *.csv / *.log                   holdings, transactions, history
-#   Startup Investments/                     Autom8Labs client list and pipeline
-#
-# Autom8Labs/Business Dashboard is its OWN private git repo (initialised
-# 2026-08-03), shared with Ori and Amir. It must never be absorbed into this one:
-# this repo is PUBLIC, and it also carries the AlphaPicks brokerage files, which
-# are personal financial data that must not travel alongside a partner-shared
-# business project. The default-deny rule at the top already excludes it; this
-# note records why that must stay true.
+# ── Nothing under OneDrive/ belongs here ─────────────────────────────────────
+# The AlphaPicks dashboard moved to its own PRIVATE repo on 2026-10-11
+# (arielsacerdoti/alphapicks-dashboard, nested at OneDrive/Schwab) and was purged
+# from this repo's history: an API key hardcoded in it had been public here.
+# Autom8Labs/Business Dashboard and Supra are likewise their own private repos.
+# The default-deny rule at the top already excludes all of OneDrive; do not add
+# an allowlist line for anything in it.
